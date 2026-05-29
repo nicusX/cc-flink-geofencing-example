@@ -1,0 +1,77 @@
+{
+  "vendorId": "keonn",
+  "placeId": "ES_0279",
+  "schemaVersion": 1,
+  "epcLocations": [
+    {
+      "epc": "30360392A01003C40200084A",
+      "lastDetectedEpochMillis": 1745000010000,
+      "x": 250,
+      "y": 800,
+      "floorNumber": 1,
+      "auxiliaries": {
+        "entries": {
+          "state": {
+            "stringValue": "N"
+          }
+        }
+      }
+    },
+    {
+      "epc": "3036039B30107C4404000232",
+      "lastDetectedEpochMillis": 1745000011000,
+      "x": 680,
+      "y": 1430,
+      "floorNumber": 1,
+      "auxiliaries": {
+        "entries": {
+          "state": {
+            "stringValue": "M"
+          }
+        }
+      }
+    },
+    {
+      "epc": "3036039B30107BC404000D7E",
+      "lastDetectedEpochMillis": 1745000012000,
+      "x": 310,
+      "y": 750,
+      "floorNumber": 2,
+      "auxiliaries": {
+        "entries": {
+          "state": {
+            "stringValue": "N"
+          }
+        }
+      }
+    },
+    {
+      "epc": "30360390E84F09C4040017D0",
+      "lastDetectedEpochMillis": 1745000013500,
+      "x": 1120,
+      "y": 290,
+      "floorNumber": 2,
+      "auxiliaries": {
+        "entries": {
+          "state": {
+            "stringValue": "R"
+          }
+        }
+      }
+    },
+    {
+      "epc": "30360390E8434DC40200053E",
+      "lastDetectedEpochMillis": 1745000014000,
+      "x": 500,
+      "y": 500,
+      "floorNumber": 3,
+      "auxiliaries": {
+        "entries": {
+          "state": {
+            "stringValue": "M"
+          }
+        }
+      }
+    }
+  ]
+}
