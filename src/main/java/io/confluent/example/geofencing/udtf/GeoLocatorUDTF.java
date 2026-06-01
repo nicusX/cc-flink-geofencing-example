@@ -1,6 +1,8 @@
-import io.confluent.example.udtf.geofencing.maps.GeoLocator;
-import io.confluent.example.udtf.geofencing.maps.Location;
-import io.confluent.example.udtf.geofencing.maps.LocationLoader;
+package io.confluent.example.geofencing.udtf;
+
+import io.confluent.example.geofencing.maps.GeoLocator;
+import io.confluent.example.geofencing.maps.Location;
+import io.confluent.example.geofencing.maps.LocationLoader;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
 import org.apache.flink.table.annotation.FunctionHint;
@@ -57,8 +59,8 @@ public class GeoLocatorUDTF extends TableFunction<Row> {
 
     public void eval(
             @ArgumentHint(name = "location_id", type = @DataTypeHint("STRING")) String locationId,
-            @ArgumentHint(name = "x", type = @DataTypeHint("DOUBLE")) double x,
-            @ArgumentHint(name = "y", type = @DataTypeHint("DOUBLE")) double y
+            @ArgumentHint(name = "x", type = @DataTypeHint("DOUBLE")) Double x,
+            @ArgumentHint(name = "y", type = @DataTypeHint("DOUBLE")) Double y
     ) {
         // ATTENTION: you should not log on every record in production
         LOGGER.info("Geo-locating ({},{}) in location {}", x, y, locationId);

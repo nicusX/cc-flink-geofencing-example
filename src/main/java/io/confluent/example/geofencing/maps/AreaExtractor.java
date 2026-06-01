@@ -1,4 +1,4 @@
-package io.confluent.example.udtf.geofencing.maps;
+package io.confluent.example.geofencing.maps;
 
 import java.util.ArrayList;
 import java.util.Iterator;

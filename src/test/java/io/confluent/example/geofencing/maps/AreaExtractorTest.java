@@ -1,4 +1,4 @@
-package io.confluent.example.udtf.geofencing.maps;
+package io.confluent.example.geofencing.maps;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

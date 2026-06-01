@@ -1,4 +1,4 @@
-package io.confluent.example.udtf.geofencing.maps;
+package io.confluent.example.geofencing.maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

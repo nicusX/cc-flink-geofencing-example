@@ -55,8 +55,8 @@ Upload the uber-jar from `target/` to Confluent Cloud, then register the functio
 
 ```sql
 CREATE FUNCTION GeoLocator
-  AS 'GeoLocatorUDTF'
-  USING JAR '<artifact-id>';
+  AS 'io.confluent.example.geofencing.udtf.GeoLocatorUDTF'
+  USING JAR 'confluent-artifact://<artifact-id>';
 ```
 
 Verify the function is available:

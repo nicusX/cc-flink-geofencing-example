@@ -1,6 +1,8 @@
-import io.confluent.example.udtf.geofencing.maps.GeoLocator;
-import io.confluent.example.udtf.geofencing.maps.Location;
-import io.confluent.example.udtf.geofencing.maps.NamedArea;
+package io.confluent.example.geofencing.udtf;
+
+import io.confluent.example.geofencing.maps.GeoLocator;
+import io.confluent.example.geofencing.maps.Location;
+import io.confluent.example.geofencing.maps.NamedArea;
 import org.apache.flink.table.functions.TableFunction;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Collector;
