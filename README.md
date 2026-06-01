@@ -31,6 +31,10 @@ the original Item but no matching area.
 > ever fall in more than one area. However, the DXF format cannot guarantee there is no overlap. For this reason, the
 > PTF implementation support the case of coordinates falling in more than one area.
 
+### Prerequisites
+
+Requires **Java 17** and **Maven** to build the PTF artifact.
+
 ---
 
 ### Data structures
