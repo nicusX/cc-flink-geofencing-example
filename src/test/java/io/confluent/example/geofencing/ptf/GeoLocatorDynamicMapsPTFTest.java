@@ -2,23 +2,35 @@ package io.confluent.example.geofencing.ptf;
 
 import io.confluent.example.geofencing.maps.NamedArea;
 import org.apache.flink.types.Row;
+import org.apache.flink.util.Collector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 class GeoLocatorDynamicMapsPTFTest {
 
     private final GeoLocatorDynamicMapsPTF ptf = new GeoLocatorDynamicMapsPTF();
+    private List<Row> collected;
 
     @BeforeEach
     void setUp() throws Exception {
         ptf.open(null);
+        collected = new ArrayList<>();
+        ptf.setCollector(new Collector<>() {
+            @Override
+            public void collect(Row row) { collected.add(row); }
+            @Override
+            public void close() {}
+        });
     }
 
     @Nested
@@ -328,6 +340,154 @@ class GeoLocatorDynamicMapsPTFTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("name")
                     .hasCauseInstanceOf(ClassCastException.class);
+        }
+    }
+
+    @Nested
+    class Eval {
+
+        private GeoLocatorDynamicMapsPTF.NamedAreaMapState state;
+
+        @BeforeEach
+        void initState() {
+            state = new GeoLocatorDynamicMapsPTF.NamedAreaMapState();
+        }
+
+        // --- Named area map handling ---
+
+        @Test
+        void namedAreaRowShouldUpdateStateAndEmitNoRecord() {
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
+
+            assertThat(collected).isEmpty();
+            assertThat(state.namedAreas).containsKey("ZONE A");
+        }
+
+        @Test
+        void multipleAreasShouldAllBePreservedInState() {
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE B", 20, 20, 30, 30), null);
+
+            assertThat(state.namedAreas).hasSize(2);
+            assertThat(state.namedAreas).containsKeys("ZONE A", "ZONE B");
+        }
+
+        @Test
+        void namedAreaWithSameNameShouldReplaceExisting() {
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 50, 50), null);
+
+            assertThat(state.namedAreas).hasSize(1);
+            NamedArea area = state.namedAreas.get("ZONE A");
+            assertThat(area.polygon.getArea()).isEqualTo(2500.0);
+        }
+
+        // --- Item geolocation ---
+
+        @Test
+        void itemInsideOneAreaShouldEmitOneRow() {
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE B", 20, 20, 30, 30), null);
+
+            ptf.eval(state, null, itemRow("LOC1", "EPC1", 5.0, 5.0));
+
+            assertThat(collected).singleElement().satisfies(row -> {
+                assertThat(row.getField(0)).isEqualTo("ZONE A");
+                assertThat(row.getField(1)).isEqualTo(1);
+                assertThat(row.getField(2)).isEqualTo(1);
+            });
+        }
+
+        @Test
+        void itemInsideOverlappingAreasShouldEmitMultipleRows() {
+            ptf.eval(state, namedAreaRow("LOC1", "X", 0, 0, 20, 20), null);
+            ptf.eval(state, namedAreaRow("LOC1", "Y", 5, 5, 25, 25), null);
+
+            ptf.eval(state, null, itemRow("LOC1", "EPC1", 10.0, 10.0));
+
+            assertThat(collected)
+                    .extracting(r -> r.getField(0), r -> r.getField(1), r -> r.getField(2))
+                    .containsExactly(
+                            tuple("X", 1, 2),
+                            tuple("Y", 2, 2)
+                    );
+        }
+
+        @Test
+        void itemOutsideAllAreasShouldEmitRowWithNullArea() {
+            ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
+
+            ptf.eval(state, null, itemRow("LOC1", "EPC1", 50.0, 50.0));
+
+            assertThat(collected).singleElement().satisfies(row -> {
+                assertThat(row.getField(0)).isNull();
+                assertThat(row.getField(1)).isEqualTo(0);
+                assertThat(row.getField(2)).isEqualTo(0);
+            });
+        }
+
+        @Test
+        void itemWithNoAreasLoadedShouldEmitRowWithNullArea() {
+            ptf.eval(state, null, itemRow("LOC1", "EPC1", 5.0, 5.0));
+
+            assertThat(collected).singleElement().satisfies(row -> {
+                assertThat(row.getField(0)).isNull();
+                assertThat(row.getField(1)).isEqualTo(0);
+                assertThat(row.getField(2)).isEqualTo(0);
+            });
+        }
+
+        // --- Error handling ---
+
+        @Test
+        void invalidNamedAreaRowShouldThrow() {
+            Row badRow = Row.withNames();
+            badRow.setField("location_id", "LOC1");
+
+            assertThatThrownBy(() -> ptf.eval(state, badRow, null))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(collected).isEmpty();
+        }
+
+        @Test
+        void invalidItemRowShouldThrow() {
+            Row badRow = Row.withNames();
+            badRow.setField("location_id", "LOC1");
+
+            assertThatThrownBy(() -> ptf.eval(state, null, badRow))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(collected).isEmpty();
+        }
+
+        // --- Helpers ---
+
+        private Row namedAreaRow(String locationId, String areaName, double x1, double y1, double x2, double y2) {
+            Row row = Row.withNames();
+            row.setField("location_id", locationId);
+            row.setField("area_name", areaName);
+            row.setField("polygon", new Row[]{
+                    point(x1, y1), point(x2, y1),
+                    point(x2, y2), point(x1, y2),
+                    point(x1, y1)
+            });
+            return row;
+        }
+
+        private Row itemRow(String locationId, String itemId, double x, double y) {
+            Row row = Row.withNames();
+            row.setField("location_id", locationId);
+            row.setField("item_id", itemId);
+            row.setField("x", x);
+            row.setField("y", y);
+            row.setField("lastDetectedTs", 1745000010000L);
+            return row;
+        }
+
+        private Row point(double x, double y) {
+            Row p = Row.withNames();
+            p.setField("x", x);
+            p.setField("y", y);
+            return p;
         }
     }
 }

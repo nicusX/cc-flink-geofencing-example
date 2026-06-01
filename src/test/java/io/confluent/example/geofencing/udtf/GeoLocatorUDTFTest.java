@@ -53,7 +53,7 @@ class GeoLocatorUDTFTest {
         );
 
         setPrivateField(GeoLocatorUDTF.class, udtf, "locations", locations);
-        setPrivateField(GeoLocatorUDTF.class, udtf, "locator", new GeoLocator());
+        setPrivateField(GeoLocatorUDTF.class, udtf, "locator", new GeoLocator(new GeometryFactory()));
         installTestCollector(udtf);
     }
 

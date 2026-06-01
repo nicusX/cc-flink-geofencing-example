@@ -28,7 +28,7 @@ Represents a single item to be located.
 | `lastDetectedTs` | `BIGINT` | Timestamp of last detection (epoch milliseconds)            |
 
 ```sql
-CREATE TABLE detected_items (
+CREATE TABLE items (
   `item_id`        STRING,
   `location_id`    STRING,
   `x`              DOUBLE,
@@ -92,3 +92,27 @@ Example JSON record (as produced by `json-registry` format):
   ]
 }
 ```
+
+### Testing the PTF
+
+#### Register the PTF
+
+TODO
+
+#### Invoke the PTF in a statement
+
+TODO SQL SELECT invoking the PTF passing the two tables 
+
+#### Generate Named Area Maps
+
+TODO INSERT INTO named_area_maps with the map of a location
+
+#### Send items to locate
+
+TODO INSERT INTO items various items falling into one area
+
+TODO INSERT INTO items  an item falling in no area
+
+TODO INSERT INTO items various items with a location which we have no area defined for
+
+

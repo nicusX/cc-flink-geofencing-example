@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.locationtech.jts.geom.GeometryFactory;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -14,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GeoLocatorIntegrationTest {
 
     private List<NamedArea> areas;
-    private final GeoLocator geoLocator = new GeoLocator();
+    private final GeoLocator geoLocator = new GeoLocator(new GeometryFactory());
 
     @BeforeAll
     void loadMap() throws IOException {

@@ -12,8 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class GeoLocatorTest {
 
-    private final GeoLocator geoLocator = new GeoLocator();
     private final GeometryFactory gf = new GeometryFactory();
+    private final GeoLocator geoLocator = new GeoLocator(gf);
 
     private Polygon rectangle(double x1, double y1, double x2, double y2) {
         return gf.createPolygon(new Coordinate[]{

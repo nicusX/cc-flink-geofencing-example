@@ -3,6 +3,7 @@ package io.confluent.example.geofencing.udtf;
 import io.confluent.example.geofencing.maps.GeoLocator;
 import io.confluent.example.geofencing.maps.LocationLoader;
 import io.confluent.example.geofencing.maps.NamedArea;
+import org.locationtech.jts.geom.GeometryFactory;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
 import org.apache.flink.table.annotation.FunctionHint;
@@ -54,7 +55,7 @@ public class GeoLocatorUDTF extends TableFunction<Row> {
         LOGGER.info("Loaded {} locations", locations.size());
 
         // Initialize the locator
-        this.locator = new GeoLocator();
+        this.locator = new GeoLocator(new GeometryFactory());
     }
 
     public void eval(

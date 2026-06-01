@@ -1,30 +1,84 @@
 package io.confluent.example.geofencing.ptf;
+
+import io.confluent.example.geofencing.maps.GeoLocator;
 import io.confluent.example.geofencing.maps.NamedArea;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.table.annotation.ArgumentHint;
+import org.apache.flink.table.annotation.DataTypeHint;
 import org.apache.flink.table.annotation.StateHint;
 import org.apache.flink.table.functions.FunctionContext;
 import org.apache.flink.table.functions.ProcessTableFunction;
 import org.apache.flink.types.Row;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Polygon;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.flink.table.annotation.ArgumentTrait.PASS_COLUMNS_THROUGH;
 import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE;
 
+/**
+ * PTF implementing geofencing via dynamic maps.
+ *
+ * Expects two input tables, both {@code PARTITIONED BY location_id}:
+ *
+ * 1. Named area maps ({@code named_area_maps}):
+ * <pre>
+ *   location_id  STRING   -- location identifier ({@code <placeId>-<floorNumber>})
+ *   area_name    STRING   -- name of the area
+ *   polygon      ARRAY&lt;ROW&lt;x DOUBLE, y DOUBLE&gt;&gt;  -- closed ring of vertices
+ * </pre>
+ *
+ * 2. Detected items ({@code detected_items}):
+ * <pre>
+ *   item_id        STRING  -- unique item identifier
+ *   location_id    STRING  -- location identifier ({@code <placeId>-<floorNumber>})
+ *   x              DOUBLE  -- X coordinate within the location
+ *   y              DOUBLE  -- Y coordinate within the location
+ *   lastDetectedTs BIGINT  -- timestamp of last detection (epoch milliseconds)
+ * </pre>
+ *
+ * Output row:
+ * <pre>
+ *   area                 STRING    -- name of the matching area
+ *   matching_area_idx    INT       -- 1-based index of this area among all matches
+ *   total_matching_areas INT       -- total number of areas the point matched
+ * </pre>
+ *
+ * Named area maps are preserved in state. Every time a named area map record is received,
+ * the state representing the map of the location (all named areas at the location) is updated.
+ * The state is a map keyed by area name. When an area map record is received, it replaces any
+ * pre-existing area with the same name at the same location. Otherwise, the area is added.
+ * No record is returned in this case.
+ * <p>
+ * When an item record is received, the PTF geo-positions it on the map of the location.
+ * One row is emitted for each named area where the item coordinates fall.
+ * Under normal conditions the item should fall in exactly one area. However, because the DXF
+ * maps do not guarantee that areas never overlap nor that the entire floorplan is covered,
+ * zero or multiple matches are possible.
+ * <p>
+ * If the item does not fall in any named area, return a single record with
+ * null matching area name.
+ * Conversely, if the item falls into multiple areas, multiple rows are emitted.
+
+ * <p>
+ * If any error happens while parsing the input records, the function should log a message to
+ * WARN and return no record.
+ */
+@DataTypeHint("ROW<`area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
 public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     private static final Logger LOGGER = LogManager.getLogger(GeoLocatorDynamicMapsPTF.class);
 
 
+    // These properties are initialized in open() and reused across invocations
     private transient GeometryFactory geometryFactory;
+    private transient GeoLocator geoLocator;
 
     /**
      * Object holding all the NamedAreas of a location, by name.
@@ -102,7 +156,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
 
     /**
      * Parse a row containing the item to locate into an Item object
-     *  If the parsing fails throws IllegalArgumentException
+     * If the parsing fails throws IllegalArgumentException
      */
     @VisibleForTesting
     Item parseItemRow(Row row) {
@@ -162,49 +216,91 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     public void open(FunctionContext context) throws Exception {
         super.open(context);
         geometryFactory = new GeometryFactory();
+        geoLocator = new GeoLocator(geometryFactory);
     }
 
 
-
+    /**
+     * Main PTF method: invoked when a record from either tables is processed.
+     * Because both tables have set semantics, they must be both PARTITIONED BY the same key: location_id.
+     * The state visible in the method is also implicitly partitioned by the same key.
+     */
     public void eval(
             @StateHint NamedAreaMapState locationNamedAreas,
             @ArgumentHint(SET_SEMANTIC_TABLE) Row namedAreaRow,
-            @ArgumentHint(SET_SEMANTIC_TABLE) Row itemRow
+            @ArgumentHint({SET_SEMANTIC_TABLE, PASS_COLUMNS_THROUGH}) Row itemRow
     ) {
 
         // If NamedArea row, update the state and emit no record
-        if( namedAreaRow != null ) {
+        if (namedAreaRow != null) {
+
+            // Parse the area
+            String locationId = null;
+            NamedArea namedArea;
             try {
-                String locationId = parseStringFieldByName(namedAreaRow,"location_id");
-                NamedArea namedArea = parseNamedAreaRow(namedAreaRow);
+                locationId = parseStringFieldByName(namedAreaRow, "location_id");
+                namedArea = parseNamedAreaRow(namedAreaRow);
 
-                // Add/update the area to the location maps
-                if (namedArea != null) {
-                    locationNamedAreas.namedAreas.put(locationId, namedArea);
-
-                    // DO NOT log on every record in production
-                    LOGGER.info("Updating location map. Location:{}, area:{}", locationId, namedArea.name);
-                } else {
-                    LOGGER.warn("Unable to update the location map: {}", locationId);
+                // If it was unable to parse the area, for any reason, throw an exception
+                if (namedArea == null) {
+                    throw new IllegalArgumentException("Unable to parse the named area map at location " + locationId);
                 }
             } catch (IllegalArgumentException iae) {
-                LOGGER.warn("Exception while parsing a named area", iae);
-                throw new RuntimeException("Exception while parsing a named area map", iae);
+                // On validation exception: Log and rethrow to make the specific exception visible in the logs
+                LOGGER.warn("Exception while parsing a named area at location " +  locationId, iae);
+                throw iae;
             }
 
+            // Add/update the area to the location maps (keyed by area name)
+            locationNamedAreas.namedAreas.put(namedArea.name, namedArea);
+
+            // DO NOT log on every record in production
+            LOGGER.info("Updating location map. Location:{}, area:{}", locationId, namedArea.name);
+            // Return no record
         }
 
-        // TODO If  Item row, geolocate it
-        if( itemRow != null) {
-            // TODO catch IllegalArgumentException and log
+        // If  Item row, geolocate it
+        if (itemRow != null) {
 
-            String locationId = parseStringFieldByName(itemRow,"location_id");
-            Item item = parseItemRow(itemRow);
+            // Parse the item to locate
+            String locationId = null;
+            Item item = null;
+            try {
+                locationId = parseStringFieldByName(itemRow, "location_id");
+                item = parseItemRow(itemRow);
 
-            if( item != null) {
-                // TODO geo-fence the item and emit a row
+                // If it was unable to parse an item, for any reason, throw an exception
+                if(item == null) {
+                    throw new IllegalArgumentException("Unable to parse the item at location " + locationId);
+                }
+            } catch (IllegalArgumentException iae) {
+                // On validation exception: Log and rethrow to make the specific exception visible in the logs
+                LOGGER.warn("Exception while parsing an item to locate at location " + locationId, iae);
+                throw iae;
+            }
+
+            // Locate the item on the map of the location - it may fall into zero or more named areas
+            // Identify all the areas of the location where the item falls
+            List<String> matchingAreas = this.geoLocator.locateAreas(locationNamedAreas.namedAreas.values(), item.x, item.y);
+
+            // DO NOT log on every record in production
+            LOGGER.info("Item {} located in {} areas within location {}", item.itemId, matchingAreas.size(), locationId);
+
+            // Return a row for each matching area
+            int matchingAreaCount = matchingAreas.size();
+            if (matchingAreaCount > 0) {
+                // Emit one row for each matching area
+                for (int i = 0; i < matchingAreaCount; i++) {
+                    collect(Row.of(
+                            matchingAreas.get(i), // Name of the matching area
+                            i + 1, // Index starts from 1
+                            matchingAreaCount // Total number of matching areas
+                    ));
+                }
+
             } else {
-                LOGGER.warn("Unable to geo-fence an item at location {}", locationId);
+                // Return a record with null matching area name, and zero matching areas
+                collect(Row.of( null, 0, 0));
             }
         }
     }
