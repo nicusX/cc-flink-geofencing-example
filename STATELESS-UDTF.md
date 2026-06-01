@@ -1,6 +1,10 @@
 # Geofencing UDTF for Confluent Cloud Flink
 
-A Flink **User Defined Table Function** (UDTF) that determines which area(s) of a store/warehouse a given point falls into. Floorplan boundaries are defined as DXF files bundled inside the JAR and loaded at startup.
+This implementation is a simplified version of what shown by the PTF.
+
+This uses a stateless UDTF which pre-load the maps on start.
+The DXF files representing the maps must put in the `src/main/resources` folder and packaged with the JAR artifact.
+
 
 ## How it works
 

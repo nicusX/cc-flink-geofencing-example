@@ -1,7 +1,7 @@
 package io.confluent.example.geofencing.ptf;
 
 import io.confluent.example.geofencing.maps.NamedArea;
-import io.confluent.example.geofencing.maps.PolygonPOJO;
+import io.confluent.example.geofencing.ptf.GeoLocatorDynamicMapsPTF.PolygonPOJO;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Collector;
 import org.junit.jupiter.api.BeforeEach;

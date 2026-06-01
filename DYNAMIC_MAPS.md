@@ -1,21 +1,41 @@
-## Dynamic Maps Geofencing example
+## Geofencing in Confluent Cloud Flink with dynamic maps
 
 This example shows how to implement geofencing with dynamic maps using a PTF.
 
+The PTF locates each item streamed in a fast event stream on a floorplan map defining areas of a location.
+Each item refers ot a location and  has x,y coordinates on the floorplan of the location 
+The PTF identifies which area(s) the item coordinates fall in. 
+
+
 The PTF expects two input streams:
-1. Item: a single item to be located, in a specific location (`placeId` + `floorNumber`)
-2. NamedArea maps: a map of a Named Area in a specific `placeId` & `floorNumber`
+1. Named area maps: a map of a areas of a location, each with a specific name
+2. Item: a single item to be located, in a specific location
 
 > Note: both tables are append-only and have no PRIMARY KEY, because at the moment PTF in CC only support append-only changelog tables.
 
-### CC Flink PTF Reference Documentation
+The maps of locations are preserved in Flink state. New areas can be created and existing areas can be updated 
+sending records to the named area maps input.
 
-* [Process Table Functions in Confluent Cloud for Apache Flink](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html)
-* [Create a Process Table Function in Confluent Cloud for Apache Flink](https://docs.confluent.io/cloud/current/flink/how-to-guides/create-ptf.html)
-* [Differences between OSS Flink PTF and CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#differences-from-apache-flink)
-* [Current limitations of CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#process-table-function-limitations)
+When an Item is processed, the PTF emits one or more records, for each area of the location the item coordinates fall in.
+If the coordinates fall in no area defined for that location, or the location is unknown, the PTF emits a record with 
+the original Item but no matching area.
 
-### Item data structure
+> The implementation uses [JTS](https://github.com/locationtech/jts) for geolocating coordinates on the location maps.
+
+> [Kabeja](https://kabeja.sourceforge.net/) is used to parse the DXF floorplan files and extract the polygons that defined the
+> areas. This is a very old and not very robust library. However, a robust DXF parsing is out of scope for this example.
+> The PTF implementation relies on maps defined as polygons, never mind the way they are extracted. Kabeja is only used to 
+> parse the provided DXF to provide a realistic example.
+
+> Note that, if the floorplan is correctly defined, there should be no overlapping areas in a location and no item should
+> ever fall in more than one area. However, the DXF format cannot guarantee there is no overlap. For this reason, the
+> PTF implementation support the case of coordinates falling in more than one area.
+
+---
+
+### Data structures
+
+#### Item data structure
 
 Represents a single item to be located.
 
@@ -27,17 +47,6 @@ Represents a single item to be located.
 | `y`              | `DOUBLE` | Y coordinate within the location                            |
 | `lastDetectedTs` | `BIGINT` | Timestamp of last detection (epoch milliseconds)            |
 
-```sql
-CREATE TABLE items (
-  `item_id`        STRING,
-  `location_id`    STRING,
-  `x`              DOUBLE,
-  `y`              DOUBLE,
-  `lastDetectedTs` BIGINT
-) WITH (
-  'value.format' = 'json-registry'
-);
-```
 
 Example JSON record:
 
@@ -51,9 +60,7 @@ Example JSON record:
 }
 ```
 
-
-
-### NamedArea map data structure
+#### NamedArea map data structure
 
 Represents NamedArea in a given location.
 
@@ -66,16 +73,6 @@ Fields:
 | `polygon`     | `ARRAY<ROW<x DOUBLE, y DOUBLE>>` | Closed ring of vertices defining the area boundary   |
 
 The polygon is an ordered array of `(x, y)` coordinate pairs forming a closed ring (first and last vertex must be identical), matching the JTS `Polygon` convention.
-
-```sql
-CREATE TABLE named_area_maps (
-  `location_id`  STRING NOT NULL,
-  `area_name`    STRING NOT NULL,
-  `polygon`      ARRAY<ROW<x DOUBLE, y DOUBLE>> NOT NULL
-) WITH (
-  'value.format' = 'json-registry'
-);
-```
 
 Example of named area JSON record (as produced by `json-registry` format):
 
@@ -93,27 +90,47 @@ Example of named area JSON record (as produced by `json-registry` format):
 }
 ```
 
+#### PTF output
+
+The PTF pass through the Item and adds 3 columns indicating matching areas:
+
+| Column                 | Type          | Description                                                      |
+|------------------------|---------------|------------------------------------------------------------------|
+| `area`                 | `STRING`      | Name of the matching area, or `NULL` if no area matches          |
+| `matching_area_idx`    | `INT NOT NULL` | 1-based index of this area among all matches (0 if no match)    |
+| `total_matching_areas` | `INT NOT NULL` | Total number of areas the item coordinates fall in (0 if none)  |
+
+Note: no record is returned when an area map is received.
+
 ----
 
-### Generating area maps from DXF files
+### Extracting area maps from DXF files
 
 The `dxfextractor.sh` script parses a DXF floorplan file and generates records for the `named_area_maps` table. The location ID is derived from the DXF filename (without the `.dxf` extension).
 
-Before running, build the uber-jar:
+> Note: this DXF extractor is not really in scope with the PTF example. But we use it to extract the areas from a DXF for a realistic example.
 
+Before running, make sure you have built the JAR:
 ```bash
-mvn package -DskipTests
+mvn package
 ```
 
 #### SQL output
+
+Extract the areas defined in the DXF floorplan in form of an INSERT INTO SQL statement. This is what we will use to test the PTF.
 
 ```bash
 ./dxfextractor.sh ES_0279-1F.dxf sql
 ```
 
-This prints a Flink SQL `INSERT INTO named_area_maps` statement with all areas extracted from the DXF file. Copy the output and paste it directly into the Confluent Cloud SQL Workspace to populate the `named_area_maps` table.
+This prints a Flink SQL `INSERT INTO named_area_maps` statement with all areas extracted from the DXF file. 
+Copy the output and paste it directly into the Confluent Cloud SQL Workspace to populate the `named_area_maps` table (see below).
+
+The Location ID is the name of the DXF file, without the `.dxf` extension.
 
 #### JSON output
+
+Alternatively, the extractor can also generate areas in JSON format. We will not use this to test the PTF.
 
 ```bash
 ./dxfextractor.sh ES_0279-1F.dxf json
@@ -125,7 +142,9 @@ This prints one JSON record per line (JSONL). This format is not used in the dem
 
 ### Testing the PTF
 
-#### 1. Create the tables
+We now want to test the PTF with some realistic data.
+
+#### 1. Create the input tables
 
 ```sql
 CREATE TABLE named_area_maps (
@@ -149,9 +168,18 @@ CREATE TABLE items (
 );
 ```
 
-#### 2. Register the PTF
+#### 2. Build and upload the PTF artifact (JAR)
 
-Upload the uber-jar as an artifact to Confluent Cloud, then register the function:
+```bash
+mvn package
+```
+
+Upload it in the Artifact page in the Confluent Cloud Environments. Make sure you upload it in the same cloud provider 
+and region where you will be running the SQL statements.
+
+#### 3. Register the PTF
+
+Register the function:
 
 ```sql
 CREATE FUNCTION GeoLocatorDynamicMaps
@@ -161,7 +189,7 @@ USING JAR 'confluent-artifact://<artifact-id>';
 
 Replace `<artifact-id>` with the ID returned by the artifact upload.
 
-#### 3. Invoke the PTF
+#### 4. Invoke the PTF
 
 ```sql
 SELECT *
@@ -171,7 +199,10 @@ FROM GeoLocatorDynamicMaps(
 );
 ```
 
-The PTF emits item columns explicitly in its output (since `PASS_COLUMNS_THROUGH` is not supported with multiple input tables):
+Keep this query running. We will observe the output while we are sending maps and items.
+
+The query emits all the name of the matching area, and the index and total number of matching areas (remember: it can be more than 1!).
+It also pass-through the Item.
 
 | Column                 | Description                                      |
 |------------------------|--------------------------------------------------|
@@ -184,21 +215,26 @@ The PTF emits item columns explicitly in its output (since `PASS_COLUMNS_THROUGH
 | `matching_area_idx`    | 1-based index among matching areas (0 if none)   |
 | `total_matching_areas` | Total number of areas the point matched          |
 
-#### 4. Load named area maps
+No record is emitted when a area map is received.
 
-Generate the `INSERT INTO` statement from a DXF file (see [Generating area maps from DXF files](#generating-area-maps-from-dxf-files)):
+#### 5. Load named area maps
+
+
+Generate the `INSERT INTO` statement from a DXF file (see [Extracting area maps from DXF files](#extracting-area-maps-from-dxf-files)):
 
 ```bash
 ./dxfextractor.sh ES_0279-1F.dxf sql
 ```
 
+This generates three areas maps for the location `ES_0279-1F`.
+
 Copy the output and paste it into the SQL Workspace.
+You should observe no output from the PTF.
 
-#### 5. Send items to locate
+#### 6. Send items to locate
 
-> Note: the `location_id` of the items must match the `location_id` of the loaded named area maps. If you loaded maps from `ES_0279-1F.dxf`, use `ES_0279-1F`. If you used the quick-test ZONE A/ZONE B data, use `TEST-1F`.
 
-**Item falling in exactly one area** (inside STOCKROOM 2 and FRONTSTORE respectively):
+**Items falling in exactly one area** (inside *STOCKROOM 2* and *FRONTSTORE* respectively):
 
 ```sql
 INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
@@ -229,9 +265,9 @@ VALUES
 
 Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_matching_areas = 0` (no areas in state for this partition).
 
-#### 6. Test with synthetic overlapping areas
+#### 7. Test another location with overlapping areas
 
-Load three rectangular areas for location `LOC42-2F`. AREA1 and AREA2 overlap in the region (80,80)–(120,120):
+Load three rectangular areas for location `LOC42-2F`. *AREA1* and *AREA2* overlap in the region (80,80)–(120,120):
 
 ```
          0       80  100 120     200
@@ -247,6 +283,7 @@ Load three rectangular areas for location `LOC42-2F`. AREA1 and AREA2 overlap in
                         AREA3: (300,0)–(400,100)  (separate)
 ```
 
+
 ```sql
 INSERT INTO named_area_maps (location_id, area_name, polygon)
 VALUES
@@ -255,7 +292,7 @@ VALUES
   ('LOC42-2F', 'AREA3', ARRAY[ROW(300.0, 0.0), ROW(400.0, 0.0), ROW(400.0, 100.0), ROW(300.0, 100.0), ROW(300.0, 0.0)]);
 ```
 
-**Item in the overlap between AREA1 and AREA2:**
+**Item in the overlap between *AREA1* and *AREA2*:**
 
 ```sql
 INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
@@ -265,7 +302,7 @@ VALUES
 
 Expected output: two rows for ITEM-010, one with `area = 'AREA1'` and one with `area = 'AREA2'`, both with `total_matching_areas = 2`.
 
-**Item in AREA3 only (no overlap):**
+**Item in *AREA3* only (no overlap):**
 
 ```sql
 INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
@@ -274,3 +311,13 @@ VALUES
 ```
 
 Expected output: one row with `area = 'AREA3'`, `matching_area_idx = 1`, `total_matching_areas = 1`.
+
+---
+
+
+### CC Flink PTF Reference Documentation
+
+* [Process Table Functions in Confluent Cloud for Apache Flink](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html)
+* [Create a Process Table Function in Confluent Cloud for Apache Flink](https://docs.confluent.io/cloud/current/flink/how-to-guides/create-ptf.html)
+* [Differences between OSS Flink PTF and CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#differences-from-apache-flink)
+* [Current limitations of CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#process-table-function-limitations)

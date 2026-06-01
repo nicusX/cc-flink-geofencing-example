@@ -2,7 +2,6 @@ package io.confluent.example.geofencing.ptf;
 
 import io.confluent.example.geofencing.maps.GeoLocator;
 import io.confluent.example.geofencing.maps.NamedArea;
-import io.confluent.example.geofencing.maps.PolygonPOJO;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
@@ -25,16 +24,16 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
 
 /**
  * PTF implementing geofencing via dynamic maps.
- *
+ * <p>
  * Expects two input tables, both {@code PARTITIONED BY location_id}:
- *
+ * <p>
  * 1. Named area maps ({@code named_area_maps}):
  * <pre>
  *   location_id  STRING   -- location identifier ({@code <placeId>-<floorNumber>})
  *   area_name    STRING   -- name of the area
  *   polygon      ARRAY&lt;ROW&lt;x DOUBLE, y DOUBLE&gt;&gt;  -- closed ring of vertices
  * </pre>
- *
+ * <p>
  * 2. Detected items ({@code detected_items}):
  * <pre>
  *   item_id        STRING  -- unique item identifier
@@ -43,7 +42,7 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  *   y              DOUBLE  -- Y coordinate within the location
  *   lastDetectedTs BIGINT  -- timestamp of last detection (epoch milliseconds)
  * </pre>
- *
+ * <p>
  * Output row (item fields are emitted explicitly since {@code PASS_COLUMNS_THROUGH}
  * is not supported with multiple input tables):
  * <pre>
@@ -56,7 +55,7 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  *   matching_area_idx    INT       -- 1-based index of this area among all matches
  *   total_matching_areas INT       -- total number of areas the point matched
  * </pre>
- *
+ * <p>
  * Named area maps are preserved in state. Every time a named area map record is received,
  * the state representing the map of the location (all named areas at the location) is updated.
  * The state is a map keyed by area name. When an area map record is received, it replaces any
@@ -72,10 +71,13 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  * If the item does not fall in any named area, return a single record with
  * null matching area name.
  * Conversely, if the item falls into multiple areas, multiple rows are emitted.
-
+ *
  * <p>
  * If any error happens while parsing the input records, the function should log a message to
  * WARN and return no record.
+ *
+ * Note that the PTF "manually" pass-through the Item record. PTF has a trait called PASS_COLUMNS_THROUGH which
+ * automatically pass-through the input record. However, PASS_COLUMNS_THROUGH is not supported for multi-table PTF.
  */
 @DataTypeHint("ROW<`item_id` STRING, `location_id` STRING, `x` DOUBLE, `y` DOUBLE, `lastDetectedTs` BIGINT, `area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
 public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
@@ -86,13 +88,53 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     private transient GeometryFactory geometryFactory;
     private transient GeoLocator geoLocator;
 
+
     /**
      * Class holding all the areas of a location, by name.
-     * Stores PolygonPOJO instead of NamedArea because JTS Polygon is not a Flink-serializable POJO.
      * Note that as of June 2026 CC Flink does not support MapState yet, so we wrap the POJO into a Map and store it as ValueState.
      */
     public static class LocationMapState {
         public Map<String, PolygonPOJO> locationMapState = new HashMap<>();
+    }
+
+    /**
+     * Flink-serializable representation of a JTS Polygon (all public fields, no-args constructor).
+     * Stores the same content as a JTS Polygon, i.e. coordinates as parallel arrays of x and y values.
+     * However, JTS Polygon is not a POJO and we cannot use it directly in Flink state.
+     */
+    public static class PolygonPOJO {
+
+        public double[] xs;
+        public double[] ys;
+
+        public PolygonPOJO() {
+            this.xs = new double[0];
+            this.ys = new double[0];
+        }
+
+        private PolygonPOJO(double[] xs, double[] ys) {
+            this.xs = xs;
+            this.ys = ys;
+        }
+
+        public static PolygonPOJO fromPolygon(Polygon polygon) {
+            Coordinate[] coords = polygon.getCoordinates();
+            double[] xs = new double[coords.length];
+            double[] ys = new double[coords.length];
+            for (int i = 0; i < coords.length; i++) {
+                xs[i] = coords[i].x;
+                ys[i] = coords[i].y;
+            }
+            return new PolygonPOJO(xs, ys);
+        }
+
+        public Polygon toPolygon(GeometryFactory geometryFactory) {
+            Coordinate[] coords = new Coordinate[xs.length];
+            for (int i = 0; i < xs.length; i++) {
+                coords[i] = new Coordinate(xs[i], ys[i]);
+            }
+            return geometryFactory.createPolygon(coords);
+        }
     }
 
     /**
@@ -220,6 +262,11 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
         return geometryFactory;
     }
 
+
+    //////////////////////////////////////////
+    //// Implementation of the PTF interface
+    //////////////////////////////////////////
+
     /**
      * This method is called when the operator is initialized. It must be used to initialize any resource reused across
      * invocations.
@@ -243,7 +290,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
             @ArgumentHint(SET_SEMANTIC_TABLE) Row itemRow
     ) {
 
-        // If NamedArea row, update the state and emit no record
+        /// Handle namedArea row, update the state and emit no record
         if (namedAreaRow != null) {
 
             // Parse the area
@@ -259,7 +306,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 }
             } catch (IllegalArgumentException iae) {
                 // On validation exception: Log and rethrow to make the specific exception visible in the logs
-                LOGGER.warn("Exception while parsing a named area at location " +  locationId, iae);
+                LOGGER.warn("Exception while parsing a named area at location " + locationId, iae);
                 throw iae;
             }
 
@@ -271,7 +318,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
             // Return no record
         }
 
-        // If  Item row, geolocate it
+        //.Handle Item row, geolocate it
         if (itemRow != null) {
 
             // Parse the item to locate
@@ -282,7 +329,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 item = parseItemRow(itemRow);
 
                 // If it was unable to parse an item, for any reason, throw an exception
-                if(item == null) {
+                if (item == null) {
                     throw new IllegalArgumentException("Unable to parse the item at location " + locationId);
                 }
             } catch (IllegalArgumentException iae) {
@@ -296,12 +343,13 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                     .map(e -> new NamedArea(e.getKey(), e.getValue().toPolygon(geometryFactory)))
                     .toList();
 
+            // Geolocate the item on the location map: find the named areas the item coordinates fall in
             List<String> matchingAreas = this.geoLocator.locateAreas(areas, item.x, item.y);
 
             // DO NOT log on every record in production
             LOGGER.info("Item {} located in {} areas within location {}", item.itemId, matchingAreas.size(), locationId);
 
-            // Return a row for each matching area
+            // Return one row for each matching area
             int matchingAreaCount = matchingAreas.size();
             Long lastDetectedEpoch = item.lastDetectedTs.toEpochMilli();
 
@@ -309,16 +357,18 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 // Emit one row for each matching area
                 for (int i = 0; i < matchingAreaCount; i++) {
                     collect(Row.of(
+                            // Pass-through the matching item
                             item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
-                            matchingAreas.get(i),
-                            i + 1,
-                            matchingAreaCount
+                            // Add matching area information (area_name, matching_area_idx, total_matching_count)
+                            matchingAreas.get(i), i + 1, matchingAreaCount
                     ));
                 }
-
             } else {
+                // If the item coordinate do not fall in any area, return the item (pass-through) and null matching area_name
                 collect(Row.of(
+                        // Pass-through the matching item
                         item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
+                        // No matching area
                         null, 0, 0
                 ));
             }
