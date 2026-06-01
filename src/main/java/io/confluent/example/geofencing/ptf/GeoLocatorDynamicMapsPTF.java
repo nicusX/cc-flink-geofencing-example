@@ -2,6 +2,7 @@ package io.confluent.example.geofencing.ptf;
 
 import io.confluent.example.geofencing.maps.GeoLocator;
 import io.confluent.example.geofencing.maps.NamedArea;
+import io.confluent.example.geofencing.maps.PolygonPOJO;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
@@ -20,7 +21,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.flink.table.annotation.ArgumentTrait.PASS_COLUMNS_THROUGH;
 import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE;
 
 /**
@@ -44,8 +44,14 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  *   lastDetectedTs BIGINT  -- timestamp of last detection (epoch milliseconds)
  * </pre>
  *
- * Output row:
+ * Output row (item fields are emitted explicitly since {@code PASS_COLUMNS_THROUGH}
+ * is not supported with multiple input tables):
  * <pre>
+ *   item_id              STRING    -- item identifier (from item input)
+ *   location_id          STRING    -- location identifier (from item input)
+ *   x                    DOUBLE    -- X coordinate (from item input)
+ *   y                    DOUBLE    -- Y coordinate (from item input)
+ *   lastDetectedTs       BIGINT    -- last detection timestamp (from item input)
  *   area                 STRING    -- name of the matching area
  *   matching_area_idx    INT       -- 1-based index of this area among all matches
  *   total_matching_areas INT       -- total number of areas the point matched
@@ -71,7 +77,7 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  * If any error happens while parsing the input records, the function should log a message to
  * WARN and return no record.
  */
-@DataTypeHint("ROW<`area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
+@DataTypeHint("ROW<`item_id` STRING, `location_id` STRING, `x` DOUBLE, `y` DOUBLE, `lastDetectedTs` BIGINT, `area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
 public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     private static final Logger LOGGER = LogManager.getLogger(GeoLocatorDynamicMapsPTF.class);
 
@@ -81,11 +87,12 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     private transient GeoLocator geoLocator;
 
     /**
-     * Object holding all the NamedAreas of a location, by name.
-     * Note that as of June 2026 CC Flink does not support MapState yet, so we wrap the NamedArea into a map and store it as ValueState.
+     * Class holding all the areas of a location, by name.
+     * Stores PolygonPOJO instead of NamedArea because JTS Polygon is not a Flink-serializable POJO.
+     * Note that as of June 2026 CC Flink does not support MapState yet, so we wrap the POJO into a Map and store it as ValueState.
      */
-    public static class NamedAreaMapState {
-        public Map<String, NamedArea> namedAreas = new HashMap<>();
+    public static class LocationMapState {
+        public Map<String, PolygonPOJO> locationMapState = new HashMap<>();
     }
 
     /**
@@ -208,6 +215,11 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
         }
     }
 
+    @VisibleForTesting
+    GeometryFactory getGeometryFactory() {
+        return geometryFactory;
+    }
+
     /**
      * This method is called when the operator is initialized. It must be used to initialize any resource reused across
      * invocations.
@@ -226,9 +238,9 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
      * The state visible in the method is also implicitly partitioned by the same key.
      */
     public void eval(
-            @StateHint NamedAreaMapState locationNamedAreas,
+            @StateHint LocationMapState locationNamedAreas,
             @ArgumentHint(SET_SEMANTIC_TABLE) Row namedAreaRow,
-            @ArgumentHint({SET_SEMANTIC_TABLE, PASS_COLUMNS_THROUGH}) Row itemRow
+            @ArgumentHint(SET_SEMANTIC_TABLE) Row itemRow
     ) {
 
         // If NamedArea row, update the state and emit no record
@@ -252,7 +264,7 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
             }
 
             // Add/update the area to the location maps (keyed by area name)
-            locationNamedAreas.namedAreas.put(namedArea.name, namedArea);
+            locationNamedAreas.locationMapState.put(namedArea.name, PolygonPOJO.fromPolygon(namedArea.polygon));
 
             // DO NOT log on every record in production
             LOGGER.info("Updating location map. Location:{}, area:{}", locationId, namedArea.name);
@@ -279,28 +291,36 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 throw iae;
             }
 
-            // Locate the item on the map of the location - it may fall into zero or more named areas
-            // Identify all the areas of the location where the item falls
-            List<String> matchingAreas = this.geoLocator.locateAreas(locationNamedAreas.namedAreas.values(), item.x, item.y);
+            // Reconstruct NamedArea objects from state POJOs for geolocation
+            List<NamedArea> areas = locationNamedAreas.locationMapState.entrySet().stream()
+                    .map(e -> new NamedArea(e.getKey(), e.getValue().toPolygon(geometryFactory)))
+                    .toList();
+
+            List<String> matchingAreas = this.geoLocator.locateAreas(areas, item.x, item.y);
 
             // DO NOT log on every record in production
             LOGGER.info("Item {} located in {} areas within location {}", item.itemId, matchingAreas.size(), locationId);
 
             // Return a row for each matching area
             int matchingAreaCount = matchingAreas.size();
+            Long lastDetectedEpoch = item.lastDetectedTs.toEpochMilli();
+
             if (matchingAreaCount > 0) {
                 // Emit one row for each matching area
                 for (int i = 0; i < matchingAreaCount; i++) {
                     collect(Row.of(
-                            matchingAreas.get(i), // Name of the matching area
-                            i + 1, // Index starts from 1
-                            matchingAreaCount // Total number of matching areas
+                            item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
+                            matchingAreas.get(i),
+                            i + 1,
+                            matchingAreaCount
                     ));
                 }
 
             } else {
-                // Return a record with null matching area name, and zero matching areas
-                collect(Row.of( null, 0, 0));
+                collect(Row.of(
+                        item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
+                        null, 0, 0
+                ));
             }
         }
     }

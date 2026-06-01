@@ -1,6 +1,7 @@
 package io.confluent.example.geofencing.ptf;
 
 import io.confluent.example.geofencing.maps.NamedArea;
+import io.confluent.example.geofencing.maps.PolygonPOJO;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Collector;
 import org.junit.jupiter.api.BeforeEach;
@@ -346,11 +347,11 @@ class GeoLocatorDynamicMapsPTFTest {
     @Nested
     class Eval {
 
-        private GeoLocatorDynamicMapsPTF.NamedAreaMapState state;
+        private GeoLocatorDynamicMapsPTF.LocationMapState state;
 
         @BeforeEach
         void initState() {
-            state = new GeoLocatorDynamicMapsPTF.NamedAreaMapState();
+            state = new GeoLocatorDynamicMapsPTF.LocationMapState();
         }
 
         // --- Named area map handling ---
@@ -360,7 +361,7 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
 
             assertThat(collected).isEmpty();
-            assertThat(state.namedAreas).containsKey("ZONE A");
+            assertThat(state.locationMapState).containsKey("ZONE A");
         }
 
         @Test
@@ -368,8 +369,8 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
             ptf.eval(state, namedAreaRow("LOC1", "ZONE B", 20, 20, 30, 30), null);
 
-            assertThat(state.namedAreas).hasSize(2);
-            assertThat(state.namedAreas).containsKeys("ZONE A", "ZONE B");
+            assertThat(state.locationMapState).hasSize(2);
+            assertThat(state.locationMapState).containsKeys("ZONE A", "ZONE B");
         }
 
         @Test
@@ -377,9 +378,9 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 10, 10), null);
             ptf.eval(state, namedAreaRow("LOC1", "ZONE A", 0, 0, 50, 50), null);
 
-            assertThat(state.namedAreas).hasSize(1);
-            NamedArea area = state.namedAreas.get("ZONE A");
-            assertThat(area.polygon.getArea()).isEqualTo(2500.0);
+            assertThat(state.locationMapState).hasSize(1);
+            PolygonPOJO polygonPojo = state.locationMapState.get("ZONE A");
+            assertThat(polygonPojo.toPolygon(ptf.getGeometryFactory()).getArea()).isEqualTo(2500.0);
         }
 
         // --- Item geolocation ---
@@ -392,9 +393,14 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, null, itemRow("LOC1", "EPC1", 5.0, 5.0));
 
             assertThat(collected).singleElement().satisfies(row -> {
-                assertThat(row.getField(0)).isEqualTo("ZONE A");
-                assertThat(row.getField(1)).isEqualTo(1);
-                assertThat(row.getField(2)).isEqualTo(1);
+                assertThat(row.getField(0)).isEqualTo("EPC1");
+                assertThat(row.getField(1)).isEqualTo("LOC1");
+                assertThat(row.getField(2)).isEqualTo(5.0);
+                assertThat(row.getField(3)).isEqualTo(5.0);
+                assertThat(row.getField(4)).isEqualTo(1745000010000L);
+                assertThat(row.getField(5)).isEqualTo("ZONE A");
+                assertThat(row.getField(6)).isEqualTo(1);
+                assertThat(row.getField(7)).isEqualTo(1);
             });
         }
 
@@ -406,10 +412,10 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, null, itemRow("LOC1", "EPC1", 10.0, 10.0));
 
             assertThat(collected)
-                    .extracting(r -> r.getField(0), r -> r.getField(1), r -> r.getField(2))
+                    .extracting(r -> r.getField(0), r -> r.getField(5), r -> r.getField(6), r -> r.getField(7))
                     .containsExactly(
-                            tuple("X", 1, 2),
-                            tuple("Y", 2, 2)
+                            tuple("EPC1", "X", 1, 2),
+                            tuple("EPC1", "Y", 2, 2)
                     );
         }
 
@@ -420,9 +426,11 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, null, itemRow("LOC1", "EPC1", 50.0, 50.0));
 
             assertThat(collected).singleElement().satisfies(row -> {
-                assertThat(row.getField(0)).isNull();
-                assertThat(row.getField(1)).isEqualTo(0);
-                assertThat(row.getField(2)).isEqualTo(0);
+                assertThat(row.getField(0)).isEqualTo("EPC1");
+                assertThat(row.getField(1)).isEqualTo("LOC1");
+                assertThat(row.getField(5)).isNull();
+                assertThat(row.getField(6)).isEqualTo(0);
+                assertThat(row.getField(7)).isEqualTo(0);
             });
         }
 
@@ -431,9 +439,11 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, null, itemRow("LOC1", "EPC1", 5.0, 5.0));
 
             assertThat(collected).singleElement().satisfies(row -> {
-                assertThat(row.getField(0)).isNull();
-                assertThat(row.getField(1)).isEqualTo(0);
-                assertThat(row.getField(2)).isEqualTo(0);
+                assertThat(row.getField(0)).isEqualTo("EPC1");
+                assertThat(row.getField(1)).isEqualTo("LOC1");
+                assertThat(row.getField(5)).isNull();
+                assertThat(row.getField(6)).isEqualTo(0);
+                assertThat(row.getField(7)).isEqualTo(0);
             });
         }
 

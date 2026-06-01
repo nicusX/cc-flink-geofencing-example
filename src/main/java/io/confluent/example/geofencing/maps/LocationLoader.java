@@ -138,27 +138,36 @@ public class LocationLoader {
     }
 
     /**
+     * Parses a DXF map from an arbitrary InputStream.
+     *
+     * @param dxfStream  InputStream of the DXF file (caller is responsible for closing)
+     * @param sourceName descriptive name used in log messages (e.g. file path or resource path)
+     * @return list of named areas extracted from the DXF document
+     */
+    public List<NamedArea> loadMap(InputStream dxfStream, String sourceName) throws IOException {
+        LOGGER.info("Parsing map: {}", sourceName);
+
+        try {
+            DXFDocument dxfDoc = parseDxfDocument(dxfStream);
+            List<NamedArea> areas = areaExtractor.extractAreas(dxfDoc);
+
+            LOGGER.info("Map {} successfully parsed. {} areas defined", sourceName, areas.size());
+            return areas;
+        } catch (ParseException pe) {
+            LOGGER.error("Exception parsing the map file " + sourceName, pe);
+            throw new RuntimeException("Exception parsing the map file " + sourceName, pe);
+        }
+    }
+
+    /**
      * Reads a DXF resource, parses it, and generates the location map.
      *
      * @param resourcePath resource path of the .dxf file (e.g. "maps/ES_0279.dxf")
-     * @return Location with all the areas defined by the map
+     * @return list of named areas defined by the map
      */
     public List<NamedArea> loadMapFromResource(String resourcePath) throws IOException {
-        String locationId = locationIdFromPath(resourcePath);
-        LOGGER.info("Parsing map of location: {}", locationId);
-
         try (InputStream mapStream = inputFromResource(resourcePath)) {
-            DXFDocument dxfDoc = parseDxfDocument(mapStream);
-            List<NamedArea> areas = areaExtractor.extractAreas(dxfDoc);
-
-            LOGGER.info("Map of location {} successfully parsed. {} areas defined", locationId, areas.size());
-            return areas;
-        } catch (IOException ioe) {
-            LOGGER.error("Exception parsing the map " + resourcePath, ioe);
-            throw ioe;
-        } catch (ParseException pe) {
-            LOGGER.error("Exception parsing the map file " + resourcePath, pe);
-            throw new RuntimeException("Exception parsing the map file " + resourcePath, pe);
+            return loadMap(mapStream, resourcePath);
         }
     }
 
