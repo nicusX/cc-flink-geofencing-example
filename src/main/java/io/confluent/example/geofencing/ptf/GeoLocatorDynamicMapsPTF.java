@@ -40,21 +40,24 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  *   location_id    STRING  -- location identifier ({@code <placeId>-<floorNumber>})
  *   x              DOUBLE  -- X coordinate within the location
  *   y              DOUBLE  -- Y coordinate within the location
- *   lastDetectedTs BIGINT  -- timestamp of last detection (epoch milliseconds)
+ *   last_detected_ts BIGINT  -- timestamp of last detection (epoch milliseconds)
  * </pre>
  * <p>
  * Output row (item fields are emitted explicitly since {@code PASS_COLUMNS_THROUGH}
- * is not supported with multiple input tables):
+ * is not supported with multiple input tables; {@code location_id} is omitted because
+ * the partition key is automatically passed through by the PTF framework):
  * <pre>
  *   item_id              STRING    -- item identifier (from item input)
- *   location_id          STRING    -- location identifier (from item input)
  *   x                    DOUBLE    -- X coordinate (from item input)
  *   y                    DOUBLE    -- Y coordinate (from item input)
- *   lastDetectedTs       BIGINT    -- last detection timestamp (from item input)
+ *   last_detected_ts     BIGINT    -- last detection timestamp (from item input)
  *   area                 STRING    -- name of the matching area
  *   matching_area_idx    INT       -- 1-based index of this area among all matches
  *   total_matching_areas INT       -- total number of areas the point matched
  * </pre>
+ * <p>
+ * Note that the PTF automatically pass-through the partition column of each input table.
+ * The output will contain two columns with location_id.
  * <p>
  * Named area maps are preserved in state. Every time a named area map record is received,
  * the state representing the map of the location (all named areas at the location) is updated.
@@ -79,7 +82,7 @@ import static org.apache.flink.table.annotation.ArgumentTrait.SET_SEMANTIC_TABLE
  * Note that the PTF "manually" pass-through the Item record. PTF has a trait called PASS_COLUMNS_THROUGH which
  * automatically pass-through the input record. However, PASS_COLUMNS_THROUGH is not supported for multi-table PTF.
  */
-@DataTypeHint("ROW<`item_id` STRING, `location_id` STRING, `x` DOUBLE, `y` DOUBLE, `lastDetectedTs` BIGINT, `area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
+@DataTypeHint("ROW<`item_id` STRING, `x` DOUBLE, `y` DOUBLE, `last_detected_ts` BIGINT, `area` STRING, `matching_area_idx` INT NOT NULL, `total_matching_areas` INT NOT NULL>")
 public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
     private static final Logger LOGGER = LogManager.getLogger(GeoLocatorDynamicMapsPTF.class);
 
@@ -228,9 +231,9 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 throw new IllegalArgumentException("y is missing");
             }
 
-            Long lastDetectedTs = row.getFieldAs("lastDetectedTs");
+            Long lastDetectedTs = row.getFieldAs("last_detected_ts");
             if (lastDetectedTs == null) {
-                throw new IllegalArgumentException("lastDetectedTs is missing");
+                throw new IllegalArgumentException("last_detected_ts is missing");
             }
             item.lastDetectedTs = Instant.ofEpochMilli(lastDetectedTs);
 
@@ -357,18 +360,14 @@ public class GeoLocatorDynamicMapsPTF extends ProcessTableFunction<Row> {
                 // Emit one row for each matching area
                 for (int i = 0; i < matchingAreaCount; i++) {
                     collect(Row.of(
-                            // Pass-through the matching item
-                            item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
-                            // Add matching area information (area_name, matching_area_idx, total_matching_count)
+                            item.itemId, item.x, item.y, lastDetectedEpoch,
                             matchingAreas.get(i), i + 1, matchingAreaCount
                     ));
                 }
             } else {
                 // If the item coordinate do not fall in any area, return the item (pass-through) and null matching area_name
                 collect(Row.of(
-                        // Pass-through the matching item
-                        item.itemId, locationId, item.x, item.y, lastDetectedEpoch,
-                        // No matching area
+                        item.itemId, item.x, item.y, lastDetectedEpoch,
                         null, 0, 0
                 ));
             }

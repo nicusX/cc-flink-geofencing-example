@@ -3,37 +3,44 @@
 This example shows how to implement geofencing with dynamic maps using a PTF.
 
 The PTF locates each item streamed in a fast event stream on a floorplan map defining areas of a location.
-Each item refers ot a location and  has x,y coordinates on the floorplan of the location 
-The PTF identifies which area(s) the item coordinates fall in. 
+Each item refers to a location and has x,y coordinates on the floorplan of the location.
+The PTF identifies which area(s) the item coordinates fall in.
 
 
 The PTF expects two input streams:
-1. Named area maps: a map of a areas of a location, each with a specific name
+1. Named area maps: a map of areas of a location, each with a specific name
 2. Item: a single item to be located, in a specific location
 
-> Note: both tables are append-only and have no PRIMARY KEY, because at the moment PTF in CC only support append-only changelog tables.
+> Note: both tables are append-only and have no PRIMARY KEY, because at the moment PTFs in CC only support append-only changelog tables.
 
-The maps of locations are preserved in Flink state. New areas can be created and existing areas can be updated 
+The maps of locations are preserved in Flink state. New areas can be created and existing areas can be updated by
 sending records to the named area maps input.
 
-When an Item is processed, the PTF emits one or more records, for each area of the location the item coordinates fall in.
+When an item is processed, the PTF emits one or more records, one for each area of the location the item coordinates fall in.
 If the coordinates fall in no area defined for that location, or the location is unknown, the PTF emits a record with 
-the original Item but no matching area.
+the original item but no matching area.
 
 > The implementation uses [JTS](https://github.com/locationtech/jts) for geolocating coordinates on the location maps.
 
-> [Kabeja](https://kabeja.sourceforge.net/) is used to parse the DXF floorplan files and extract the polygons that defined the
+> [Kabeja](https://kabeja.sourceforge.net/) is used to parse the DXF floorplan files and extract the polygons that define the
 > areas. This is a very old and not very robust library. However, a robust DXF parsing is out of scope for this example.
 > The PTF implementation relies on maps defined as polygons, never mind the way they are extracted. Kabeja is only used to 
 > parse the provided DXF to provide a realistic example.
 
 > Note that, if the floorplan is correctly defined, there should be no overlapping areas in a location and no item should
 > ever fall in more than one area. However, the DXF format cannot guarantee there is no overlap. For this reason, the
-> PTF implementation support the case of coordinates falling in more than one area.
+> PTF implementation supports the case of coordinates falling in more than one area.
 
 ### Prerequisites
 
 Requires **Java 17** and **Maven** to build the PTF artifact.
+
+### Simpler, stateless UDTF example
+
+This repository also contains a simpler implementation solving the same problem using a [stateless UDTF](STATELESS-UDTF.md).
+
+The UDTF implementation is simpler, but it does not allow dynamically defining the maps. It packages the DXF floorplan
+files with the JAR and reads them at startup. Changing a map requires recompiling and redeploying the function.
 
 ---
 
@@ -49,7 +56,7 @@ Represents a single item to be located.
 | `location_id`    | `STRING` | Location identifier, in the form `<placeId>-<floorNumber>`  |
 | `x`              | `DOUBLE` | X coordinate within the location                            |
 | `y`              | `DOUBLE` | Y coordinate within the location                            |
-| `lastDetectedTs` | `BIGINT` | Timestamp of last detection (epoch milliseconds)            |
+| `last_detected_ts` | `BIGINT` | Timestamp of last detection (epoch milliseconds)            |
 
 
 Example JSON record:
@@ -60,7 +67,7 @@ Example JSON record:
   "location_id": "ES_0279-1F",
   "x": 250.0,
   "y": 800.0,
-  "lastDetectedTs": 1745000010000
+  "last_detected_ts": 1745000010000
 }
 ```
 
@@ -96,7 +103,7 @@ Example of named area JSON record (as produced by `json-registry` format):
 
 #### PTF output
 
-The PTF pass through the Item and adds 3 columns indicating matching areas:
+The PTF passes through the item fields and adds 3 columns indicating matching areas:
 
 | Column                 | Type          | Description                                                      |
 |------------------------|---------------|------------------------------------------------------------------|
@@ -104,7 +111,7 @@ The PTF pass through the Item and adds 3 columns indicating matching areas:
 | `matching_area_idx`    | `INT NOT NULL` | 1-based index of this area among all matches (0 if no match)    |
 | `total_matching_areas` | `INT NOT NULL` | Total number of areas the item coordinates fall in (0 if none)  |
 
-Note: no record is returned when an area map is received.
+No record is emitted when an area map record is received.
 
 ----
 
@@ -121,7 +128,7 @@ mvn package
 
 #### SQL output
 
-Extract the areas defined in the DXF floorplan in form of an INSERT INTO SQL statement. This is what we will use to test the PTF.
+Extract the areas defined in the DXF floorplan as an INSERT INTO SQL statement. This is what we will use to test the PTF.
 
 ```bash
 ./dxfextractor.sh ES_0279-1F.dxf sql
@@ -131,6 +138,9 @@ This prints a Flink SQL `INSERT INTO named_area_maps` statement with all areas e
 Copy the output and paste it directly into the Confluent Cloud SQL Workspace to populate the `named_area_maps` table (see below).
 
 The Location ID is the name of the DXF file, without the `.dxf` extension.
+
+> This DXF Extractor is far from being general and robust. 
+> It extracts the areas defined in layers with a name containing the string "IDEN".
 
 #### JSON output
 
@@ -165,20 +175,30 @@ CREATE TABLE items (
   `location_id`    STRING,
   `x`              DOUBLE,
   `y`              DOUBLE,
-  `lastDetectedTs` BIGINT
+  `last_detected_ts` BIGINT
 ) WITH (
   'value.format' = 'json-registry',
   'scan.startup.mode' = 'latest-offset'
 );
 ```
 
+> Note: we set `'scan.startup.mode' = 'latest-offset'` on both tables just to simplify experimenting.
+> This is not required by the PTF.
+> What **is required** for the PTF to work correctly is that both tables are append-only changelogs, which is the default
+> for Flink tables without a primary key.
+
 #### 2. Build and upload the PTF artifact (JAR)
+
+Compile the PTF and build the JAR artifact. This also runs unit tests:
 
 ```bash
 mvn package
 ```
 
-Upload it in the Artifact page in the Confluent Cloud Environments. Make sure you upload it in the same cloud provider 
+The build generates the artifact in `./target/geofencing-example-1.0.jar` (do not use the jar named `original-*`).
+
+Upload it in the Artifacts page in Confluent Cloud Environments. 
+Make sure you upload it in the same cloud provider 
 and region where you will be running the SQL statements.
 
 #### 3. Register the PTF
@@ -195,8 +215,11 @@ Replace `<artifact-id>` with the ID returned by the artifact upload.
 
 #### 4. Invoke the PTF
 
+Let's create a `SELECT` statement that invokes the PTF:
+
 ```sql
-SELECT *
+SELECT 
+    location_id, item_id, x, y, last_detected_ts, area, matching_area_idx, total_matching_areas
 FROM GeoLocatorDynamicMaps(
   namedAreaRow => TABLE named_area_maps PARTITION BY location_id,
   itemRow      => TABLE items PARTITION BY location_id
@@ -205,21 +228,21 @@ FROM GeoLocatorDynamicMaps(
 
 Keep this query running. We will observe the output while we are sending maps and items.
 
-The query emits all the name of the matching area, and the index and total number of matching areas (remember: it can be more than 1!).
-It also pass-through the Item.
+The query emits the name of the matching area, and the index and total number of matching areas (remember: it can be more than one!).
+It also passes through the item fields.
 
 | Column                 | Description                                      |
 |------------------------|--------------------------------------------------|
+| `location_id`          | Location identifier (partition key, automatic)   |
 | `item_id`              | Unique identifier of the item                    |
-| `location_id`          | Location identifier                              |
 | `x`                    | X coordinate within the location                 |
 | `y`                    | Y coordinate within the location                 |
-| `lastDetectedTs`       | Timestamp of last detection (epoch milliseconds) |
+| `last_detected_ts`       | Timestamp of last detection (epoch milliseconds) |
 | `area`                 | Name of the matching area (NULL if none)          |
 | `matching_area_idx`    | 1-based index among matching areas (0 if none)   |
 | `total_matching_areas` | Total number of areas the point matched          |
 
-No record is emitted when a area map is received.
+No record is emitted when an area map is received.
 
 #### 5. Load named area maps
 
@@ -230,7 +253,7 @@ Generate the `INSERT INTO` statement from a DXF file (see [Extracting area maps 
 ./dxfextractor.sh ES_0279-1F.dxf sql
 ```
 
-This generates three areas maps for the location `ES_0279-1F`.
+This generates four area maps for the location `ES_0279-1F`.
 
 Copy the output and paste it into the SQL Workspace.
 You should observe no output from the PTF.
@@ -241,7 +264,8 @@ You should observe no output from the PTF.
 **Items falling in exactly one area** (inside *STOCKROOM 2* and *FRONTSTORE* respectively):
 
 ```sql
-INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
+-- Two items, falling in two different areas
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-001', 'ES_0279-1F', 4051.3, 11247.7, 1745000010000),
   ('ITEM-002', 'ES_0279-1F', 5000.0, 28000.0, 1745000011000);
@@ -252,7 +276,8 @@ Expected output: one row per item, `area = 'STOCKROOM 2'` and `area = 'FRONTSTOR
 **Item falling in no area** (outside all zones):
 
 ```sql
-INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
+-- Item falling in no defined area
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-003', 'ES_0279-1F', 15000.0, 15000.0, 1745000012000);
 ```
@@ -262,7 +287,7 @@ Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_mat
 **Item at an unknown location** (no area maps loaded for this location):
 
 ```sql
-INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-004', 'UNKNOWN-1F', 50.0, 50.0, 1745000013000);
 ```
@@ -289,6 +314,7 @@ Load three rectangular areas for location `LOC42-2F`. *AREA1* and *AREA2* overla
 
 
 ```sql
+-- Map of a new location
 INSERT INTO named_area_maps (location_id, area_name, polygon)
 VALUES
   ('LOC42-2F', 'AREA1', ARRAY[ROW(0.0, 80.0), ROW(120.0, 80.0), ROW(120.0, 200.0), ROW(0.0, 200.0), ROW(0.0, 80.0)]),
@@ -299,7 +325,8 @@ VALUES
 **Item in the overlap between *AREA1* and *AREA2*:**
 
 ```sql
-INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
+-- Item falling in two areas
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-010', 'LOC42-2F', 100.0, 100.0, 1745000020000);
 ```
@@ -309,7 +336,7 @@ Expected output: two rows for ITEM-010, one with `area = 'AREA1'` and one with `
 **Item in *AREA3* only (no overlap):**
 
 ```sql
-INSERT INTO items (item_id, location_id, x, y, lastDetectedTs)
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-011', 'LOC42-2F', 350.0, 50.0, 1745000021000);
 ```

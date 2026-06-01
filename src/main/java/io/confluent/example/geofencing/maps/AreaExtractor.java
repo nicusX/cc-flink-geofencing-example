@@ -19,8 +19,6 @@ public class AreaExtractor {
 
     /**
      * In the DXF file, the layer defining the areas must contain this string
-     *
-     * TODO make it variable
      */
     public static final String DXF_LAYER_DEFINING_AREAS_MUST_CONTAIN = "IDEN";
 

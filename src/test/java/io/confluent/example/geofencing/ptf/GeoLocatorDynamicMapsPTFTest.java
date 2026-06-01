@@ -219,7 +219,7 @@ class GeoLocatorDynamicMapsPTFTest {
             row.setField("item_id", "30360392A01003C40200084A");
             row.setField("x", 250.0);
             row.setField("y", 800.0);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
 
             GeoLocatorDynamicMapsPTF.Item result = ptf.parseItemRow(row);
 
@@ -241,7 +241,7 @@ class GeoLocatorDynamicMapsPTFTest {
             Row row = Row.withNames();
             row.setField("x", 250.0);
             row.setField("y", 800.0);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
 
             assertThatThrownBy(() -> ptf.parseItemRow(row))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -253,7 +253,7 @@ class GeoLocatorDynamicMapsPTFTest {
             Row row = Row.withNames();
             row.setField("item_id", "EPC1");
             row.setField("y", 800.0);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
 
             assertThatThrownBy(() -> ptf.parseItemRow(row))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -265,7 +265,7 @@ class GeoLocatorDynamicMapsPTFTest {
             Row row = Row.withNames();
             row.setField("item_id", "EPC1");
             row.setField("x", 250.0);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
 
             assertThatThrownBy(() -> ptf.parseItemRow(row))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -281,7 +281,7 @@ class GeoLocatorDynamicMapsPTFTest {
 
             assertThatThrownBy(() -> ptf.parseItemRow(row))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("lastDetectedTs");
+                    .hasMessageContaining("last_detected_ts");
         }
 
         @Test
@@ -290,7 +290,7 @@ class GeoLocatorDynamicMapsPTFTest {
             row.setField("item_id", 123);
             row.setField("x", 250.0);
             row.setField("y", 800.0);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
 
             assertThatThrownBy(() -> ptf.parseItemRow(row))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -394,13 +394,12 @@ class GeoLocatorDynamicMapsPTFTest {
 
             assertThat(collected).singleElement().satisfies(row -> {
                 assertThat(row.getField(0)).isEqualTo("EPC1");
-                assertThat(row.getField(1)).isEqualTo("LOC1");
+                assertThat(row.getField(1)).isEqualTo(5.0);
                 assertThat(row.getField(2)).isEqualTo(5.0);
-                assertThat(row.getField(3)).isEqualTo(5.0);
-                assertThat(row.getField(4)).isEqualTo(1745000010000L);
-                assertThat(row.getField(5)).isEqualTo("ZONE A");
+                assertThat(row.getField(3)).isEqualTo(1745000010000L);
+                assertThat(row.getField(4)).isEqualTo("ZONE A");
+                assertThat(row.getField(5)).isEqualTo(1);
                 assertThat(row.getField(6)).isEqualTo(1);
-                assertThat(row.getField(7)).isEqualTo(1);
             });
         }
 
@@ -412,7 +411,7 @@ class GeoLocatorDynamicMapsPTFTest {
             ptf.eval(state, null, itemRow("LOC1", "EPC1", 10.0, 10.0));
 
             assertThat(collected)
-                    .extracting(r -> r.getField(0), r -> r.getField(5), r -> r.getField(6), r -> r.getField(7))
+                    .extracting(r -> r.getField(0), r -> r.getField(4), r -> r.getField(5), r -> r.getField(6))
                     .containsExactly(
                             tuple("EPC1", "X", 1, 2),
                             tuple("EPC1", "Y", 2, 2)
@@ -427,10 +426,9 @@ class GeoLocatorDynamicMapsPTFTest {
 
             assertThat(collected).singleElement().satisfies(row -> {
                 assertThat(row.getField(0)).isEqualTo("EPC1");
-                assertThat(row.getField(1)).isEqualTo("LOC1");
-                assertThat(row.getField(5)).isNull();
+                assertThat(row.getField(4)).isNull();
+                assertThat(row.getField(5)).isEqualTo(0);
                 assertThat(row.getField(6)).isEqualTo(0);
-                assertThat(row.getField(7)).isEqualTo(0);
             });
         }
 
@@ -440,10 +438,9 @@ class GeoLocatorDynamicMapsPTFTest {
 
             assertThat(collected).singleElement().satisfies(row -> {
                 assertThat(row.getField(0)).isEqualTo("EPC1");
-                assertThat(row.getField(1)).isEqualTo("LOC1");
-                assertThat(row.getField(5)).isNull();
+                assertThat(row.getField(4)).isNull();
+                assertThat(row.getField(5)).isEqualTo(0);
                 assertThat(row.getField(6)).isEqualTo(0);
-                assertThat(row.getField(7)).isEqualTo(0);
             });
         }
 
@@ -489,7 +486,7 @@ class GeoLocatorDynamicMapsPTFTest {
             row.setField("item_id", itemId);
             row.setField("x", x);
             row.setField("y", y);
-            row.setField("lastDetectedTs", 1745000010000L);
+            row.setField("last_detected_ts", 1745000010000L);
             return row;
         }
 
