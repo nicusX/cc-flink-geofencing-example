@@ -28,20 +28,20 @@ class GeoLocatorTest {
     @Nested
     class PointInsideOneArea {
 
-        private final Location map = new Location("LOC1", List.of(
+        private final List<NamedArea> areas = List.of(
                 new NamedArea("A", rectangle(0, 0, 10, 10)),
                 new NamedArea("B", rectangle(20, 20, 30, 30))
-        ));
+        );
 
         @Test
         void shouldReturnAreaA() {
-            List<String> result = geoLocator.locateAreas(map, 5, 5);
+            List<String> result = geoLocator.locateAreas(areas, 5, 5);
             assertThat(result).containsExactly("A");
         }
 
         @Test
         void shouldReturnAreaB() {
-            List<String> result = geoLocator.locateAreas(map, 25, 25);
+            List<String> result = geoLocator.locateAreas(areas, 25, 25);
             assertThat(result).containsExactly("B");
         }
     }
@@ -49,13 +49,13 @@ class GeoLocatorTest {
     @Nested
     class PointOutsideAllAreas {
 
-        private final Location map = new Location("LOC1", List.of(
+        private final List<NamedArea> areas = List.of(
                 new NamedArea("A", rectangle(0, 0, 10, 10))
-        ));
+        );
 
         @Test
         void shouldReturnEmptyList() {
-            List<String> result = geoLocator.locateAreas(map, 50, 50);
+            List<String> result = geoLocator.locateAreas(areas, 50, 50);
             assertThat(result).isEmpty();
         }
     }
@@ -63,20 +63,20 @@ class GeoLocatorTest {
     @Nested
     class PointInsideOverlappingAreas {
 
-        private final Location map = new Location("LOC1", List.of(
+        private final List<NamedArea> areas = List.of(
                 new NamedArea("A", rectangle(0, 0, 20, 20)),
                 new NamedArea("B", rectangle(5, 5, 25, 25))
-        ));
+        );
 
         @Test
         void shouldReturnBothAreas() {
-            List<String> result = geoLocator.locateAreas(map, 10, 10);
+            List<String> result = geoLocator.locateAreas(areas, 10, 10);
             assertThat(result).containsExactlyInAnyOrder("A", "B");
         }
 
         @Test
         void shouldReturnOnlyAWhenInNonOverlappingPartOfA() {
-            List<String> result = geoLocator.locateAreas(map, 2, 2);
+            List<String> result = geoLocator.locateAreas(areas, 2, 2);
             assertThat(result).containsExactly("A");
         }
     }
@@ -84,11 +84,11 @@ class GeoLocatorTest {
     @Nested
     class EmptyMap {
 
-        private final Location map = new Location("EMPTY", List.of());
+        private final List<NamedArea> areas = List.of();
 
         @Test
         void shouldReturnEmptyList() {
-            List<String> result = geoLocator.locateAreas(map, 5, 5);
+            List<String> result = geoLocator.locateAreas(areas, 5, 5);
             assertThat(result).isEmpty();
         }
     }

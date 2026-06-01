@@ -18,18 +18,18 @@ public class GeoLocator {
      * Locate a point with coordinate x,y on the map of a location.
      * Determine which area(s) the point is.
      *
-     * @param map Location of the location
+     * @param areas List of areas at the location
      * @param x coordinate
      * @param y coordinate
      * @return a List containing zero or more names of areas where the point is. The list is empty if the point does not fall in any named area.
      */
-    public List<String> locateAreas(Location map, double x, double y) {
+    public List<String> locateAreas(List<NamedArea> areas, double x, double y) {
         List<String> matchedAreaNames = new ArrayList<>();
 
         // Create a JTS Point from the coordinates
         Point queryPoint = geometryFactory.createPoint(new Coordinate(x, y));
 
-        for(NamedArea area : map.areas) {
+        for(NamedArea area : areas) {
             // Check if the polygon contains the point
             if (area.polygon.contains(queryPoint)) {
                 matchedAreaNames.add(area.name);

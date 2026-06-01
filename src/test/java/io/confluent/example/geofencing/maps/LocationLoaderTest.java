@@ -20,7 +20,7 @@ class LocationLoaderTest {
     @TestInstance(TestInstance.Lifecycle.PER_CLASS)
     class LoadMapFromResource {
 
-        private Location result;
+        private List<NamedArea> result;
 
         @BeforeAll
         void loadOnce() throws IOException {
@@ -28,24 +28,19 @@ class LocationLoaderTest {
         }
 
         @Test
-        void shouldReturnCorrectLocationId() {
-            assertThat(result.locationId).isEqualTo("ES_0279");
-        }
-
-        @Test
         void shouldExtractAreas() {
-            assertThat(result.areas).isNotEmpty();
+            assertThat(result).isNotEmpty();
         }
 
         @Test
         void allAreaNamesShouldNotBeBlank() {
-            assertThat(result.areas)
+            assertThat(result)
                     .allSatisfy(area -> assertThat(area.name).isNotBlank());
         }
 
         @Test
         void allPolygonsShouldBeValid() {
-            assertThat(result.areas)
+            assertThat(result)
                     .allSatisfy(area -> {
                         assertThat(area.polygon).isNotNull();
                         assertThat(area.polygon.isValid()).isTrue();
@@ -54,7 +49,7 @@ class LocationLoaderTest {
 
         @Test
         void allPolygonsShouldBeClosed() {
-            assertThat(result.areas)
+            assertThat(result)
                     .allSatisfy(area -> {
                         var coords = area.polygon.getCoordinates();
                         assertThat(coords.length).isGreaterThanOrEqualTo(4);
@@ -89,7 +84,7 @@ class LocationLoaderTest {
     @TestInstance(TestInstance.Lifecycle.PER_CLASS)
     class LoadAllMapsFromResources {
 
-        private Map<String, Location> results;
+        private Map<String, List<NamedArea>> results;
 
         @BeforeAll
         void loadOnce() throws IOException {
@@ -109,7 +104,7 @@ class LocationLoaderTest {
         @Test
         void allMapsShouldHaveAreas() {
             assertThat(results.values())
-                    .allSatisfy(map -> assertThat(map.areas).isNotEmpty());
+                    .allSatisfy(areas -> assertThat(areas).isNotEmpty());
         }
     }
 

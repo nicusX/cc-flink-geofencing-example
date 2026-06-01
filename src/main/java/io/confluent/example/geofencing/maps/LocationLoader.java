@@ -143,7 +143,7 @@ public class LocationLoader {
      * @param resourcePath resource path of the .dxf file (e.g. "maps/ES_0279.dxf")
      * @return Location with all the areas defined by the map
      */
-    public Location loadMapFromResource(String resourcePath) throws IOException {
+    public List<NamedArea> loadMapFromResource(String resourcePath) throws IOException {
         String locationId = locationIdFromPath(resourcePath);
         LOGGER.info("Parsing map of location: {}", locationId);
 
@@ -152,7 +152,7 @@ public class LocationLoader {
             List<NamedArea> areas = areaExtractor.extractAreas(dxfDoc);
 
             LOGGER.info("Map of location {} successfully parsed. {} areas defined", locationId, areas.size());
-            return new Location(locationId, areas);
+            return areas;
         } catch (IOException ioe) {
             LOGGER.error("Exception parsing the map " + resourcePath, ioe);
             throw ioe;
@@ -168,13 +168,14 @@ public class LocationLoader {
      *
      * @return map of locationId to Location for all maps found in the resource folder
      */
-    public Map<String, Location> loadAllMapsFromResources() throws IOException {
+    public Map<String, List<NamedArea>> loadAllMapsFromResources() throws IOException {
         List<String> resourcePaths = listDxfResourcePaths();
         LOGGER.info("Found {} map resources in: {}", resourcePaths.size(), resourcePaths);
-        Map<String, Location> maps = new HashMap<>();
+        Map<String, List<NamedArea>> maps = new HashMap<>();
         for (String resourcePath : resourcePaths) {
-            Location location = loadMapFromResource(resourcePath);
-            maps.put(location.locationId, location);
+            String locationId = locationIdFromPath(resourcePath);
+            List<NamedArea> areas = loadMapFromResource(resourcePath);
+            maps.put(locationId, areas);
         }
         return maps;
     }

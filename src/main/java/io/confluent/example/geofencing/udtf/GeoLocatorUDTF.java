@@ -1,8 +1,8 @@
 package io.confluent.example.geofencing.udtf;
 
 import io.confluent.example.geofencing.maps.GeoLocator;
-import io.confluent.example.geofencing.maps.Location;
 import io.confluent.example.geofencing.maps.LocationLoader;
+import io.confluent.example.geofencing.maps.NamedArea;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
 import org.apache.flink.table.annotation.FunctionHint;
@@ -38,7 +38,7 @@ public class GeoLocatorUDTF extends TableFunction<Row> {
     private static final Logger LOGGER = LogManager.getLogger(GeoLocatorUDTF.class);
 
     // Maps of all locations
-    private transient Map<String, Location> locations;
+    private transient Map<String, List<NamedArea>> locations;
 
     // Locator of points within a Location
     private transient GeoLocator locator;
@@ -73,10 +73,10 @@ public class GeoLocatorUDTF extends TableFunction<Row> {
         }
 
         // Get the map of the location
-        Location location = locations.get(locationId);
+        List<NamedArea> areas = locations.get(locationId);
 
         // Locate the point
-        List<String> matchingAreas = locator.locateAreas(location, x, y);
+        List<String> matchingAreas = locator.locateAreas(areas, x, y);
 
         int matchingAreaCount = matchingAreas.size();
         if( matchingAreaCount > 0 ) {

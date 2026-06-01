@@ -1,7 +1,6 @@
 package io.confluent.example.geofencing.udtf;
 
 import io.confluent.example.geofencing.maps.GeoLocator;
-import io.confluent.example.geofencing.maps.Location;
 import io.confluent.example.geofencing.maps.NamedArea;
 import org.apache.flink.table.functions.TableFunction;
 import org.apache.flink.types.Row;
@@ -42,15 +41,15 @@ class GeoLocatorUDTFTest {
         udtf = new GeoLocatorUDTF();
         collected = new ArrayList<>();
 
-        Map<String, Location> locations = Map.of(
-                "LOC1", new Location("LOC1", List.of(
+        Map<String, List<NamedArea>> locations = Map.of(
+                "LOC1", List.of(
                         new NamedArea("A", rectangle(0, 0, 10, 10)),
                         new NamedArea("B", rectangle(20, 20, 30, 30))
-                )),
-                "LOC_OVERLAP", new Location("LOC_OVERLAP", List.of(
+                ),
+                "LOC_OVERLAP", List.of(
                         new NamedArea("X", rectangle(0, 0, 20, 20)),
                         new NamedArea("Y", rectangle(5, 5, 25, 25))
-                ))
+                )
         );
 
         setPrivateField(GeoLocatorUDTF.class, udtf, "locations", locations);

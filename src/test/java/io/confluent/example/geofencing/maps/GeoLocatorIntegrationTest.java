@@ -13,12 +13,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class GeoLocatorIntegrationTest {
 
-    private Location map;
+    private List<NamedArea> areas;
     private final GeoLocator geoLocator = new GeoLocator();
 
     @BeforeAll
     void loadMap() throws IOException {
-        map = new LocationLoader().loadMapFromResource("maps/ES_0279.dxf");
+        areas = new LocationLoader().loadMapFromResource("maps/ES_0279.dxf");
     }
 
     @Nested
@@ -26,20 +26,20 @@ class GeoLocatorIntegrationTest {
 
         @Test
         void centerOfStockroom1() {
-            List<String> areas = geoLocator.locateAreas(map, 2050, 25300);
-            assertThat(areas).singleElement().asString().startsWith("STOCKROOM 1");
+            List<String> matched = geoLocator.locateAreas(areas, 2050, 25300);
+            assertThat(matched).singleElement().asString().startsWith("STOCKROOM 1");
         }
 
         @Test
         void topOfStore() {
-            List<String> areas = geoLocator.locateAreas(map, 3000, 30000);
-            assertThat(areas).singleElement().asString().startsWith("STOCKROOM 1");
+            List<String> matched = geoLocator.locateAreas(areas, 3000, 30000);
+            assertThat(matched).singleElement().asString().startsWith("STOCKROOM 1");
         }
 
         @Test
         void leftSideUpperFloor() {
-            List<String> areas = geoLocator.locateAreas(map, 1000, 25000);
-            assertThat(areas).singleElement().asString().startsWith("STOCKROOM 1");
+            List<String> matched = geoLocator.locateAreas(areas, 1000, 25000);
+            assertThat(matched).singleElement().asString().startsWith("STOCKROOM 1");
         }
     }
 
@@ -48,14 +48,14 @@ class GeoLocatorIntegrationTest {
 
         @Test
         void centerOfFrontstore() {
-            List<String> areas = geoLocator.locateAreas(map, 5300, 22000);
-            assertThat(areas).singleElement().asString().startsWith("FRONTSTORE");
+            List<String> matched = geoLocator.locateAreas(areas, 5300, 22000);
+            assertThat(matched).singleElement().asString().startsWith("FRONTSTORE");
         }
 
         @Test
         void rightSideUpperFloor() {
-            List<String> areas = geoLocator.locateAreas(map, 7000, 25000);
-            assertThat(areas).singleElement().asString().startsWith("FRONTSTORE");
+            List<String> matched = geoLocator.locateAreas(areas, 7000, 25000);
+            assertThat(matched).singleElement().asString().startsWith("FRONTSTORE");
         }
     }
 
@@ -64,8 +64,8 @@ class GeoLocatorIntegrationTest {
 
         @Test
         void centerOfStockroom2() {
-            List<String> areas = geoLocator.locateAreas(map, 4050, 11250);
-            assertThat(areas).singleElement().asString().startsWith("STOCKROOM 2");
+            List<String> matched = geoLocator.locateAreas(areas, 4050, 11250);
+            assertThat(matched).singleElement().asString().startsWith("STOCKROOM 2");
         }
     }
 
@@ -74,8 +74,8 @@ class GeoLocatorIntegrationTest {
 
         @Test
         void centerOfStockroom3() {
-            List<String> areas = geoLocator.locateAreas(map, 3840, 3070);
-            assertThat(areas).singleElement().asString().startsWith("STOCKROOM 3");
+            List<String> matched = geoLocator.locateAreas(areas, 3840, 3070);
+            assertThat(matched).singleElement().asString().startsWith("STOCKROOM 3");
         }
     }
 
@@ -84,26 +84,26 @@ class GeoLocatorIntegrationTest {
 
         @Test
         void gapBetweenFrontstoreAndStockroom2() {
-            List<String> areas = geoLocator.locateAreas(map, 7000, 15000);
-            assertThat(areas).isEmpty();
+            List<String> matched = geoLocator.locateAreas(areas, 7000, 15000);
+            assertThat(matched).isEmpty();
         }
 
         @Test
         void gapBetweenStockroom1AndFrontstore() {
-            List<String> areas = geoLocator.locateAreas(map, 2500, 20000);
-            assertThat(areas).isEmpty();
+            List<String> matched = geoLocator.locateAreas(areas, 2500, 20000);
+            assertThat(matched).isEmpty();
         }
 
         @Test
         void farOutsideBuilding() {
-            List<String> areas = geoLocator.locateAreas(map, 50000, 50000);
-            assertThat(areas).isEmpty();
+            List<String> matched = geoLocator.locateAreas(areas, 50000, 50000);
+            assertThat(matched).isEmpty();
         }
 
         @Test
         void negativeCoordinates() {
-            List<String> areas = geoLocator.locateAreas(map, -5000, -5000);
-            assertThat(areas).isEmpty();
+            List<String> matched = geoLocator.locateAreas(areas, -5000, -5000);
+            assertThat(matched).isEmpty();
         }
     }
 }
