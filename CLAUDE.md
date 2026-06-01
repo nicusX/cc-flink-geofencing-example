@@ -29,3 +29,13 @@ mvn -Dtest=ClassName test  # run a single test class
 
 - Dependencies already provided by the Flink runtime (`flink-table-api-java`, `log4j-api`, `commons-lang3`) must remain `provided` scope to avoid version clashes.
 - The shade plugin includes all non-provided dependencies; any new dependency added with default scope will be bundled into the uber-jar.
+
+## Confluent Cloud Flink PTF
+
+This project targets **Confluent Cloud (CC) Flink**, not OSS Apache Flink. The PTF API in CC Flink differs from OSS Flink and has additional limitations. Always consult the CC-specific documentation below — do not use OSS-only PTF features or APIs.
+
+Reference documentation:
+- [Process Table Functions in CC Flink](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html)
+- [Create a Process Table Function in CC Flink](https://docs.confluent.io/cloud/current/flink/how-to-guides/create-ptf.html)
+- [Differences between OSS Flink PTF and CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#differences-from-apache-flink)
+- [Current limitations of CC Flink PTF](https://docs.confluent.io/cloud/current/flink/concepts/process-table-functions.html#process-table-function-limitations)
