@@ -35,13 +35,6 @@ the original item but no matching area.
 
 Requires **Java 17** and **Maven** to build the PTF artifact.
 
-### Simpler, stateless UDTF example
-
-This repository also contains a simpler implementation solving the same problem using a [stateless UDTF](STATELESS-UDTF.md).
-
-The UDTF implementation is simpler, but it does not allow dynamically defining the maps. It packages the DXF floorplan
-files with the JAR and reads them at startup. Changing a map requires recompiling and redeploying the function.
-
 ---
 
 ### Data structures
@@ -166,8 +159,7 @@ CREATE TABLE named_area_maps (
   `area_name`    STRING NOT NULL,
   `polygon`      ARRAY<ROW<x DOUBLE, y DOUBLE>> NOT NULL
 ) WITH (
-  'value.format' = 'json-registry',
-  'scan.startup.mode' = 'latest-offset'
+  'value.format' = 'json-registry'
 );
 
 CREATE TABLE items (
@@ -218,6 +210,7 @@ Replace `<artifact-id>` with the ID returned by the artifact upload.
 Let's create a `SELECT` statement that invokes the PTF:
 
 ```sql
+-- Query invoking the PTF on each incoming Item
 SELECT 
     location_id, item_id, x, y, last_detected_ts, area, matching_area_idx, total_matching_areas
 FROM GeoLocatorDynamicMaps(
@@ -287,6 +280,7 @@ Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_mat
 **Item at an unknown location** (no area maps loaded for this location):
 
 ```sql
+-- Item in unknown location
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-004', 'UNKNOWN-1F', 50.0, 50.0, 1745000013000);
@@ -294,9 +288,12 @@ VALUES
 
 Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_matching_areas = 0` (no areas in state for this partition).
 
-#### 7. Test another location with overlapping areas
+#### 7. Add another location
 
-Load three rectangular areas for location `LOC42-2F`. *AREA1* and *AREA2* overlap in the region (80,80)–(120,120):
+Let's add the maps of another location, on the fly. No need to stop the PTF.
+
+We use a synthetic location, not from a DXF file, for this test.
+The new location `LOC42-2F` has also a map error: there are two overapping areas.
 
 ```
          0       80  100 120     200
@@ -322,26 +319,26 @@ VALUES
   ('LOC42-2F', 'AREA3', ARRAY[ROW(300.0, 0.0), ROW(400.0, 0.0), ROW(400.0, 100.0), ROW(300.0, 100.0), ROW(300.0, 0.0)]);
 ```
 
+**Item in *AREA3* only (no overlap):**
+
+```sql
+-- Item falling in an area of location LOC42-2F
+INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
+VALUES
+  ('ITEM-011', 'LOC42-2F', 350.0, 50.0, 1745000021000);
+```
+Expected output: one row with `area = 'AREA3'`, `matching_area_idx = 1`, `total_matching_areas = 1`.
+
 **Item in the overlap between *AREA1* and *AREA2*:**
 
 ```sql
--- Item falling in two areas
+-- Item falling in two areas of location LOC42-2F
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
   ('ITEM-010', 'LOC42-2F', 100.0, 100.0, 1745000020000);
 ```
 
 Expected output: two rows for ITEM-010, one with `area = 'AREA1'` and one with `area = 'AREA2'`, both with `total_matching_areas = 2`.
-
-**Item in *AREA3* only (no overlap):**
-
-```sql
-INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
-VALUES
-  ('ITEM-011', 'LOC42-2F', 350.0, 50.0, 1745000021000);
-```
-
-Expected output: one row with `area = 'AREA3'`, `matching_area_idx = 1`, `total_matching_areas = 1`.
 
 ---
 

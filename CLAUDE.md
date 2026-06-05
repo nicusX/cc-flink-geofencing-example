@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Flink Java User Defined Table Function (UDTF) for geofencing. 
-Given an entity ID (EPC), a location ID, and x/y coordinates, the function determines which area(s) of the location the entity falls into. 
-Floorplan maps are DXF files loaded from JAR resources at startup (`open()`) and cached in memory.
+Flink Java Process Table Function (PTF) for geofencing (`GeoLocatorDynamicMapsPTF`).
+Given an item ID, a location ID, and x/y coordinates, the function determines which area(s) of the location the item falls into.
+Floorplan maps are defined dynamically: the PTF consumes a `named_area_maps` table (one row per named area) and keeps the per-location map in PTF state, so maps can be added or changed at runtime without redeploying.
+DXF floorplan files are converted offline into `named_area_maps` rows (SQL or JSON) by the `Dxf2NamedAreaMapsCLI` utility — they are no longer packaged in the JAR.
 
 ## Build & Test
 
@@ -21,9 +22,9 @@ mvn -Dtest=ClassName test  # run a single test class
 ## Architecture
 
 - **Flink Table API**: `flink-table-api-java` 2.1.0 (provided scope — supplied by CC Flink runtime)
-- **DXF maps**: stored in `src/main/resources/maps/`, filename = location ID (e.g. `ES_0279.dxf`)
+- **PTF**: `GeoLocatorDynamicMapsPTF` takes two `PARTITIONED BY location_id` input tables — `named_area_maps` (map definitions, kept in state) and `items` (points to locate) — and emits one row per matching area
+- **DXF → maps**: `Dxf2NamedAreaMapsCLI` parses a DXF *file* (location ID = filename without `.dxf`) via `LocationLoader.loadMap(InputStream, name)` and prints `named_area_maps` rows as SQL `INSERT`s or JSON. DXF files are not bundled in the JAR.
 - **Uber-jar**: all non-provided dependencies are shaded into the final JAR via maven-shade-plugin
-- **Input data format**: JSON batches with `placeId`, `floorNumber`, and per-EPC `x`/`y` coordinates (see `example_batch_multifloor.json`)
 
 ## Key Constraints
 

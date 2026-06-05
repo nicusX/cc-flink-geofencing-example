@@ -1,19 +1,10 @@
 package io.confluent.example.geofencing.maps;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
-import java.net.JarURLConnection;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
-import java.util.Map;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -26,36 +17,17 @@ import org.kabeja.parser.Parser;
 import org.kabeja.parser.ParserBuilder;
 
 /**
- * Loads and parses a DXF map resource for a location.
+ * Loads and parses a DXF map for a location from an input stream.
  *
  * Must be initialized lazily and not put as a property of the UDF class - it's not serializable
  */
 public class LocationLoader {
     private static final Logger LOGGER = LogManager.getLogger(LocationLoader.class);
 
-    /**
-     * Resource folder containing the dxf maps
-     */
-    public static final String MAP_RESOURCE_FOLDER = "maps";
-
     private final AreaExtractor areaExtractor;
 
     public LocationLoader() {
         areaExtractor = new AreaExtractor();
-    }
-
-    private static String locationIdFromPath(String resourcePath) {
-        String filename = resourcePath.substring(resourcePath.lastIndexOf('/') + 1);
-        return filename.substring(0, filename.length() - 4);
-    }
-
-    private InputStream inputFromResource(String resourcePath) {
-        InputStream is = LocationLoader.class.getClassLoader().getResourceAsStream(resourcePath);
-        if (is == null) {
-            LOGGER.error("Map resource file {} not found", resourcePath);
-            throw new IllegalArgumentException("Resource file " + resourcePath + " not found");
-        }
-        return is;
     }
 
     /**
@@ -97,47 +69,6 @@ public class LocationLoader {
 
 
     /**
-     * Lists all DXF resource paths by scanning the maps resource folder.
-     * Handles both filesystem (dev/test) and JAR (production) classpath layouts.
-     */
-    List<String> listDxfResourcePaths() throws IOException {
-        URL dirUrl = LocationLoader.class.getClassLoader().getResource(MAP_RESOURCE_FOLDER);
-        if (dirUrl == null) {
-            throw new IllegalStateException(
-                    "Resource folder '" + MAP_RESOURCE_FOLDER + "' not found on classpath");
-        }
-
-        String prefix = MAP_RESOURCE_FOLDER + "/";
-        List<String> resourcePaths = new ArrayList<>();
-
-        if ("file".equals(dirUrl.getProtocol())) {
-            File dir = new File(dirUrl.getPath());
-            String[] files = dir.list();
-            if (files != null) {
-                for (String file : files) {
-                    if (file.endsWith(".dxf")) {
-                        resourcePaths.add(prefix + file);
-                    }
-                }
-            }
-        } else if ("jar".equals(dirUrl.getProtocol())) {
-            JarURLConnection jarConn = (JarURLConnection) dirUrl.openConnection();
-            try (JarFile jar = jarConn.getJarFile()) {
-                Enumeration<JarEntry> entries = jar.entries();
-                while (entries.hasMoreElements()) {
-                    String name = entries.nextElement().getName();
-                    if (name.startsWith(prefix) && name.endsWith(".dxf") && !name.substring(prefix.length()).contains("/")) {
-                        resourcePaths.add(name);
-                    }
-                }
-            }
-        }
-
-        resourcePaths.sort(String::compareTo);
-        return resourcePaths;
-    }
-
-    /**
      * Parses a DXF map from an arbitrary InputStream.
      *
      * @param dxfStream  InputStream of the DXF file (caller is responsible for closing)
@@ -157,35 +88,5 @@ public class LocationLoader {
             LOGGER.error("Exception parsing the map file " + sourceName, pe);
             throw new RuntimeException("Exception parsing the map file " + sourceName, pe);
         }
-    }
-
-    /**
-     * Reads a DXF resource, parses it, and generates the location map.
-     *
-     * @param resourcePath resource path of the .dxf file (e.g. "maps/ES_0279.dxf")
-     * @return list of named areas defined by the map
-     */
-    public List<NamedArea> loadMapFromResource(String resourcePath) throws IOException {
-        try (InputStream mapStream = inputFromResource(resourcePath)) {
-            return loadMap(mapStream, resourcePath);
-        }
-    }
-
-
-    /**
-     * Discovers all DXF map files in the resource folder and loads each one.
-     *
-     * @return map of locationId to Location for all maps found in the resource folder
-     */
-    public Map<String, List<NamedArea>> loadAllMapsFromResources() throws IOException {
-        List<String> resourcePaths = listDxfResourcePaths();
-        LOGGER.info("Found {} map resources in: {}", resourcePaths.size(), resourcePaths);
-        Map<String, List<NamedArea>> maps = new HashMap<>();
-        for (String resourcePath : resourcePaths) {
-            String locationId = locationIdFromPath(resourcePath);
-            List<NamedArea> areas = loadMapFromResource(resourcePath);
-            maps.put(locationId, areas);
-        }
-        return maps;
     }
 }
