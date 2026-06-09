@@ -1,19 +1,20 @@
 ## Geofencing in Confluent Cloud Flink with dynamic maps
 
-This example shows how to implement geofencing with dynamic maps using a PTF.
+This example shows how to implement geofencing with dynamic maps using a Flink Process Table Function (PTF).
+
+The example has been tested in Confluent Cloud Flink.
 
 The PTF locates each item streamed in a fast event stream on a floorplan map defining areas of a location.
 Each item refers to a location and has x,y coordinates on the floorplan of the location.
 The PTF identifies which area(s) the item coordinates fall in.
 
 
-The PTF expects two input streams:
+The PTF consumes two input streams, both partitioned by location ID:
 1. Named area maps: a map of areas of a location, each with a specific name
 2. Item: a single item to be located, in a specific location
 
-> Note: both tables are append-only and have no PRIMARY KEY, because at the moment PTFs in CC only support append-only changelog tables.
 
-The maps of locations are preserved in Flink state. New areas can be created and existing areas can be updated by
+The maps are preserved in Flink state. New areas can be created and existing areas can be updated by
 sending records to the named area maps input.
 
 When an item is processed, the PTF emits one or more records, one for each area of the location the item coordinates fall in.
@@ -22,10 +23,11 @@ the original item but no matching area.
 
 > The implementation uses [JTS](https://github.com/locationtech/jts) for geolocating coordinates on the location maps.
 
-> [Kabeja](https://kabeja.sourceforge.net/) is used to parse the DXF floorplan files and extract the polygons that define the
-> areas. This is a very old and not very robust library. However, a robust DXF parsing is out of scope for this example.
-> The PTF implementation relies on maps defined as polygons, never mind the way they are extracted. Kabeja is only used to 
-> parse the provided DXF to provide a realistic example.
+A simple utility extracts the area definitions from a DXF file representing the floorplan. This is an external tool independent
+of the PTF and is provided only for demonstration purposes. The implementation is not particularly robust and "just works"
+for the provided example. 
+Properly extracting area map definitions from DXF is out of scope for this example.
+
 
 > Note that, if the floorplan is correctly defined, there should be no overlapping areas in a location and no item should
 > ever fall in more than one area. However, the DXF format cannot guarantee there is no overlap. For this reason, the
