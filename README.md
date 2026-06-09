@@ -154,30 +154,51 @@ We now want to test the PTF with some realistic data.
 #### 1. Create the input tables
 
 ```sql
-CREATE TABLE named_area_maps (
-  `location_id`  STRING NOT NULL,
-  `area_name`    STRING NOT NULL,
-  `polygon`      ARRAY<ROW<x DOUBLE, y DOUBLE>> NOT NULL
-) WITH (
-  'value.format' = 'json-registry'
+CREATE TABLE named_area_maps
+(
+    `location_id` STRING NOT NULL,
+    `area_name`   STRING NOT NULL,
+    `polygon`     ARRAY<ROW<x DOUBLE, y DOUBLE>> NOT NULL
+) DISTRIBUTED BY HASH(`location_id`, `area_name`) INTO 6 BUCKETS
+  WITH (
+    'value.format' = 'json-registry',
+    'changelog.mode' =  'append',
+    'scan.startup.mode' = 'earliest-offset',
+    'kafka.cleanup-policy' = 'compact' 
 );
+```
+Notes:
+* `DISTRIBUTED BY HASH(location_id, area_name)`: determines the partitioning of the source topic. 
+    The PTF does not require partitioning the source. This is required if `compact` cleanup policy is used.
+* `...INTO 6 BUCKETS`: determines the number of partitions in the topic. There is no specific requirement for the number of partitions.
+* `'value.format' = 'json-registry'`: the PTF actually works with any format.
+* `'changelog.mode' =  'append'`: mandatory. PTF only supports append changelog at the moment. 
+    Note that `append` is the default when no primary key is defined, but we make it explicit for clarity.
+* `'scan.startup.mode' = 'earliest-offset'`: force replaying the entire compacted topic when the statement is re-created with no state.
+    This allows rebuilding all the maps in state.
+* `'kafka.cleanup-policy' = 'compact'`: this is just an option. The PTF does not require compaction. 
+    However, all the most recent maps for each `location_id` and `area_name` must be retained, to rebuild the state in case the statement 
+    has to be recreated. If `delete` policy is used instead, you need infinite retention.
 
+```sql
 CREATE TABLE items (
-  `item_id`        STRING,
-  `location_id`    STRING,
-  `x`              DOUBLE,
-  `y`              DOUBLE,
-  `last_detected_ts` BIGINT
+    `item_id`        STRING,
+    `location_id`    STRING,
+    `x`              DOUBLE,
+    `y`              DOUBLE,
+    `last_detected_ts` BIGINT
 ) WITH (
-  'value.format' = 'json-registry',
-  'scan.startup.mode' = 'latest-offset'
+    'value.format' = 'json-registry',
+    'scan.startup.mode' = 'latest-offset',
+    'changelog.mode' =  'append'
 );
 ```
 
-> Note: we set `'scan.startup.mode' = 'latest-offset'` on both tables just to simplify experimenting.
-> This is not required by the PTF.
-> What **is required** for the PTF to work correctly is that both tables are append-only changelogs, which is the default
-> for Flink tables without a primary key.
+Notes:
+* `'value.format' = 'json-registry'`: the PTF actually works with any format.
+* `'changelog.mode' =  'append'`: mandatory. PTF only supports append changelog at the moment.
+* `'scan.startup.mode' = 'latest-offset'`: this is not a requirement, and it's just useful for the demo
+
 
 #### 2. Build and upload the PTF artifact (JAR)
 
