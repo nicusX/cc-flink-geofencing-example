@@ -57,16 +57,16 @@ Example JSON record:
 ```json
 {
   "item_id": "30360392A01003C40200084A",
-  "location_id": "ES_0279-1F",
-  "x": 250.0,
-  "y": 800.0,
+  "location_id": "LOC-0001",
+  "x": 323531.0,
+  "y": 371648.0,
   "last_detected_ts": 1745000010000
 }
 ```
 
 #### NamedArea map data structure
 
-Represents NamedArea in a given location.
+Represents a named area in a given location.
 
 Fields:
 
@@ -82,14 +82,14 @@ Example of named area JSON record (as produced by `json-registry` format):
 
 ```json
 {
-  "location_id": "ES_0279-1F",
-  "area_name": "STOCKROOM 1",
+  "location_id": "LOC-0001",
+  "area_name": "OFFICES",
   "polygon": [
-    {"x": 0.0, "y": 20000.0},
-    {"x": 4000.0, "y": 20000.0},
-    {"x": 4000.0, "y": 27000.0},
-    {"x": 0.0, "y": 27000.0},
-    {"x": 0.0, "y": 20000.0}
+    {"x": 327912.6, "y": 373146.2},
+    {"x": 330998.2, "y": 373146.2},
+    {"x": 330998.2, "y": 367666.1},
+    {"x": 327912.6, "y": 367666.1},
+    {"x": 327912.6, "y": 373146.2}
   ]
 }
 ```
@@ -121,10 +121,14 @@ mvn package
 
 #### SQL output
 
-Extract the areas defined in the DXF floorplan as an INSERT INTO SQL statement. This is what we will use to test the PTF.
+The project contains an example DXF file, [`LOC-0001.dxf`](./LOC-0001.dxf), defining a floorplan with five named areas:
+
+![LOC-0001 floorplan](LOC-0001.png)
+
+Extract the areas defined in the DXF floorplan as an `INSERT INTO` SQL statement. This is what we will use to test the PTF.
 
 ```bash
-./dxfextractor.sh ES_0279-1F.dxf sql
+./dxfextractor.sh LOC-0001.dxf sql
 ```
 
 This prints a Flink SQL `INSERT INTO named_area_maps` statement with all areas extracted from the DXF file. 
@@ -140,7 +144,7 @@ The Location ID is the name of the DXF file, without the `.dxf` extension.
 Alternatively, the extractor can also generate areas in JSON format. We will not use this to test the PTF.
 
 ```bash
-./dxfextractor.sh ES_0279-1F.dxf json
+./dxfextractor.sh LOC-0001.dxf json
 ```
 
 This prints one JSON record per line (JSONL). This format is not used in the demo but can be useful for loading data via other tools or pipelines.
@@ -264,28 +268,29 @@ No record is emitted when an area map is received.
 Generate the `INSERT INTO` statement from a DXF file (see [Extracting area maps from DXF files](#extracting-area-maps-from-dxf-files)):
 
 ```bash
-./dxfextractor.sh ES_0279-1F.dxf sql
+./dxfextractor.sh LOC-0001.dxf sql
 ```
 
-This generates four area maps for the location `ES_0279-1F`.
+This generates five area maps for the location `LOC-0001`: *MAIN CLASSROOM*, *CLASSROOM 1*, *CLASSROOM 2*, *CLASSROOM 3* and *OFFICES*.
 
-Copy the output and paste it into the SQL Workspace.
-You should observe no output from the PTF.
+Copy the output `INSERT INTO ...` statement and paste it into the SQL Workspace.
+
+No output record is emitted by the PTF when it processes new maps.
 
 #### 6. Send items to locate
 
 
-**Items falling in exactly one area** (inside *STOCKROOM 2* and *FRONTSTORE* respectively):
+**Items falling in exactly one area** (inside *MAIN CLASSROOM* and *CLASSROOM 3* respectively):
 
 ```sql
 -- Two items, falling in two different areas
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
-  ('ITEM-001', 'ES_0279-1F', 4051.3, 11247.7, 1745000010000),
-  ('ITEM-002', 'ES_0279-1F', 5000.0, 28000.0, 1745000011000);
+  ('ITEM-001', 'LOC-0001', 323531.0, 371648.0, 1745000010000),
+  ('ITEM-002', 'LOC-0001', 333196.0, 378000.0, 1745000011000);
 ```
 
-Expected output: one row per item, `area = 'STOCKROOM 2'` and `area = 'FRONTSTORE'` respectively, both with `matching_area_idx = 1` and `total_matching_areas = 1`.
+Expected output: one row per item, `area = 'MAIN CLASSROOM'` and `area = 'CLASSROOM 3'` respectively, both with `matching_area_idx = 1` and `total_matching_areas = 1`.
 
 **Item falling in no area** (outside all zones):
 
@@ -293,7 +298,7 @@ Expected output: one row per item, `area = 'STOCKROOM 2'` and `area = 'FRONTSTOR
 -- Item falling in no defined area
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
-  ('ITEM-003', 'ES_0279-1F', 15000.0, 15000.0, 1745000012000);
+  ('ITEM-003', 'LOC-0001', 350000.0, 370000.0, 1745000012000);
 ```
 
 Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_matching_areas = 0`.
@@ -304,7 +309,7 @@ Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_mat
 -- Item in unknown location
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
-  ('ITEM-004', 'UNKNOWN-1F', 50.0, 50.0, 1745000013000);
+  ('ITEM-004', 'LOC-UNKNOWN', 50000.0, 50000.0, 1745000013000);
 ```
 
 Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_matching_areas = 0` (no areas in state for this partition).
@@ -314,20 +319,20 @@ Expected output: one row with `area = NULL`, `matching_area_idx = 0`, `total_mat
 Let's add the maps of another location, on the fly. No need to stop the PTF.
 
 We use a synthetic location, not from a DXF file, for this test.
-The new location `LOC42-2F` has also a map error: there are two overapping areas.
+The new location `LOC-0002` also has a map error: there are two overlapping areas.
 
 ```
-         0       80  100 120     200
-    200  ┌────────────────┐
-         │    AREA1       │
-    120  │        ┌───────┼──────┐
-         │        │OVERLAP│      │
-    100  │        │       │      │
-     80  └────────┼───────┘      │
-         ·        │    AREA2     │
-      0  ·        └──────────────┘
-         0       80             200
-                        AREA3: (300,0)–(400,100)  (separate)
+         0               80000   120000          200000
+  200000 ┌───────────────────────┐
+         │         AREA1         │
+  120000 │               ┌───────┼───────────────┐
+         │               │OVERLAP│               │
+  100000 │               │       │               │
+   80000 └───────────────┼───────┘               │
+                         │         AREA2         │
+       0                 └───────────────────────┘
+
+         AREA3: x[300000,400000], y[0,100000]  (separate)
 ```
 
 
@@ -335,31 +340,51 @@ The new location `LOC42-2F` has also a map error: there are two overapping areas
 -- Map of a new location
 INSERT INTO named_area_maps (location_id, area_name, polygon)
 VALUES
-  ('LOC42-2F', 'AREA1', ARRAY[ROW(0.0, 80.0), ROW(120.0, 80.0), ROW(120.0, 200.0), ROW(0.0, 200.0), ROW(0.0, 80.0)]),
-  ('LOC42-2F', 'AREA2', ARRAY[ROW(80.0, 0.0), ROW(200.0, 0.0), ROW(200.0, 120.0), ROW(80.0, 120.0), ROW(80.0, 0.0)]),
-  ('LOC42-2F', 'AREA3', ARRAY[ROW(300.0, 0.0), ROW(400.0, 0.0), ROW(400.0, 100.0), ROW(300.0, 100.0), ROW(300.0, 0.0)]);
+  ('LOC-0002', 'AREA1', ARRAY[ROW(0.0, 80000.0), ROW(120000.0, 80000.0), ROW(120000.0, 200000.0), ROW(0.0, 200000.0), ROW(0.0, 80000.0)]),
+  ('LOC-0002', 'AREA2', ARRAY[ROW(80000.0, 0.0), ROW(200000.0, 0.0), ROW(200000.0, 120000.0), ROW(80000.0, 120000.0), ROW(80000.0, 0.0)]),
+  ('LOC-0002', 'AREA3', ARRAY[ROW(300000.0, 0.0), ROW(400000.0, 0.0), ROW(400000.0, 100000.0), ROW(300000.0, 100000.0), ROW(300000.0, 0.0)]);
 ```
 
 **Item in *AREA3* only (no overlap):**
 
 ```sql
--- Item falling in an area of location LOC42-2F
+-- Item falling in an area of location LOC-0002
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
-  ('ITEM-011', 'LOC42-2F', 350.0, 50.0, 1745000021000);
+  ('ITEM-011', 'LOC-0002', 350000.0, 50000.0, 1745000021000);
 ```
 Expected output: one row with `area = 'AREA3'`, `matching_area_idx = 1`, `total_matching_areas = 1`.
 
 **Item in the overlap between *AREA1* and *AREA2*:**
 
 ```sql
--- Item falling in two areas of location LOC42-2F
+-- Item falling in two areas of location LOC-0002
 INSERT INTO items (item_id, location_id, x, y, last_detected_ts)
 VALUES
-  ('ITEM-010', 'LOC42-2F', 100.0, 100.0, 1745000020000);
+  ('ITEM-010', 'LOC-0002', 100000.0, 100000.0, 1745000020000);
 ```
 
 Expected output: two rows for ITEM-010, one with `area = 'AREA1'` and one with `area = 'AREA2'`, both with `total_matching_areas = 2`.
+
+---
+
+### Features of the PTF implementation
+
+All maps are retained in Flink state. If the statement is stopped (or crashes) and then resumed, the maps are restored from state.
+
+If you need to re-create the statement, this will clear the state. To rebuild it, replay the entire content of `named_area_maps`.
+For this reason, this topic should have infinite retention or it should use compaction, publishing records with the composite
+key `(location_id, area_name)` to retain the latest record for each area.
+
+The PTF supports updating existing areas: when a new `named_area_maps` record for a `location_id` and `area_name` is received, it replaces the old
+area in Flink state. Deleting existing named area maps is not supported, but handling tombstone records (e.g. records with an empty `polygon`)
+should be trivial.
+
+The PTF logs to INFO every time a map is added or updated.
+It also logs to INFO on every item located for demonstration purposes, but logging on each record in production is bad practice. 
+
+The PTF implements no particular error handling. If any exception is thrown, the problem is logged but the exception is rethrown.
+This causes the Flink statement to stop.
 
 ---
 
